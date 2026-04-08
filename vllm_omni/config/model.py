@@ -64,6 +64,9 @@ class OmniModelArchConfigConvertor(ModelArchConfigConvertorBase):
                         return None
                 return top_quant
 
+            # For non-thinker stages (talker, code2wav) whose text_config
+            # has no quantization_config, return None so quantization is
+            # not applied to stages that were not quantized.
             return None
 
         return super().get_quantization_config()
