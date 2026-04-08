@@ -1114,6 +1114,10 @@ class Qwen3OmniMoeThinkerForConditionalGeneration(
         self.multimodal_config = multimodal_config
         self.quant_config = quant_config
 
+        # Remap quant config if needed, to ensure submodules get the correct quantization settings.
+        vllm_config = self._remap_quant_config(vllm_config, prefix)
+        quant_config = vllm_config.quant_config
+
         # Pre-quantized checkpoints (modelopt NVFP4/FP8/MXFP8) quantize the
         # entire thinker — audio tower, visual encoder, and language model
         # all share the same quant method.  Dynamic quantization methods

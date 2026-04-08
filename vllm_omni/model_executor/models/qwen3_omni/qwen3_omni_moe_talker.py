@@ -1,3 +1,4 @@
+from dataclasses import replace
 from collections.abc import Iterable
 from typing import Any
 
@@ -100,15 +101,22 @@ class Qwen3OmniMoeTalkerForConditionalGeneration(
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__()
         talker_config: Qwen3OmniMoeTalkerConfig = vllm_config.model_config.hf_config
-        rope_params = talker_config.text_config.rope_scaling
+        rope_params = getattr(talker_config.text_config, "rope_scaling", None)
         if rope_params is None:
             # Newer transformers use rope_parameters instead of rope_scaling
             rope_params = getattr(talker_config.text_config, "rope_parameters", None) or {}
-        rope_params["rope_theta"] = talker_config.text_config.rope_theta
+        rope_params = dict(rope_params)
+        rope_params.setdefault(
+            "rope_theta",
+            getattr(talker_config.text_config, "rope_theta", rope_params.get("rope_theta", 10000.0)),
+        )
         talker_config.text_config.rope_parameters = rope_params
         quant_config = vllm_config.quant_config
         if isinstance(quant_config, ComponentQuantizationConfig):
             quant_config = quant_config.resolve("talker")
+            vllm_config = replace(vllm_config, quant_config=quant_config)
+        vllm_config = self._remap_quant_config(vllm_config, prefix)
+        quant_config = vllm_config.quant_config
         self.quant_config = quant_config
         self.prefix = prefix
         self.vllm_config = vllm_config
@@ -221,10 +229,14 @@ class Qwen3OmniMoeTalkerForConditionalGeneration(
             thinker_config: Configuration from the thinker model (for reference only)
         """
         self.audio_tower = Qwen3OmniMoeAudioEncoder(thinker_config.audio_config)
+        _PRE_QUANTIZED_METHODS = {"modelopt", "modelopt_fp4", "modelopt_mxfp8"}
         self.visual = Qwen3Omni_VisionTransformer(
             vision_config=thinker_config.vision_config,
             norm_eps=getattr(thinker_config.text_config, "rms_norm_eps", 1e-6),
-            quant_config=self.quant_config,
+            quant_config=self.quant_config if (
+                self.quant_config is not None
+                and self.quant_config.get_name() in _PRE_QUANTIZED_METHODS
+                ) else None,
             prefix=maybe_prefix(self.prefix, "visual"),
             # attn_backend_override=attn_backend_override,
         )

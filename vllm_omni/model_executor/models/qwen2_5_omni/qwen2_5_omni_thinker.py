@@ -1,6 +1,7 @@
 """Thin Omni wrapper: reuse upstream Qwen2.5-Omni thinker (v0.14) with minimal overrides."""
 
 from collections.abc import Iterable, Mapping
+from dataclasses import replace
 from typing import Any
 
 import torch
@@ -69,6 +70,8 @@ try:
 except (ImportError, ModuleNotFoundError):
     flash_attn = None
 logger = init_logger(__name__)
+
+from vllm_omni.quantization.component_config import ComponentQuantizationConfig
 
 
 class Qwen2_5OmniThinkerMultiModalProcessor(
@@ -144,6 +147,21 @@ class Qwen2_5OmniThinkerMultiModalProcessor(
 
 
 class Qwen2_5OmniConditionalGenerationMixin(Qwen2_5OmniConditionalGenerationMixinBase):
+
+    @classmethod
+    def _remap_quant_config(cls, vllm_config: VllmConfig, prefix: str = "") -> VllmConfig:
+        """Remap the HF checkpoint prefixes to vLLM runtime prefixes in the quantization config, if any.
+        """
+        from vllm_omni.quantization.component_config import remap_quant_config_with_hf_mapper
+
+        qc = vllm_config.quant_config
+        mapper = getattr(cls, "hf_to_vllm_mapper", None)
+        if mapper is not None and qc is not None:
+            qc = remap_quant_config_with_hf_mapper(qc, hf_to_vllm_mapper=mapper, stage_prefix=prefix)
+            if qc is not vllm_config.quant_config:
+                vllm_config = replace(vllm_config, quant_config=qc)
+        return vllm_config
+
     def _parse_and_validate_audio_input(self, **kwargs: object) -> Qwen2_5OmniAudioFeatureInputs | None:
         input_audio_features = kwargs.pop("input_audio_features", None)
         audio_feature_lengths = kwargs.pop("audio_feature_lengths", None)
@@ -359,6 +377,31 @@ class Qwen2_5OmniThinkerForConditionalGeneration(
 
         self.quant_config = quant_config
 
+        # Remap quant config if needed, to ensure submodules get the correct quantization settings.
+        vllm_config = self._remap_quant_config(vllm_config, prefix)
+        quant_config = vllm_config.quant_config
+
+        _PRE_QUANTIZED_METHODS = {"modelopt", "modelopt_fp4", "modelopt_mxfp8"}
+        if isinstance(quant_config, ComponentQuantizationConfig):
+            visual_quant_config = quant_config.resolve("visual")
+            language_quant_config = quant_config.resolve("language_model")
+        elif quant_config is not None:
+            if quant_config.get_name() in _PRE_QUANTIZED_METHODS:
+                visual_quant_config = quant_config
+                language_quant_config = quant_config
+            else:
+                # Dynamic / weight-only: scope to language_model only.
+                language_quant_config = quant_config
+                quant_config = ComponentQuantizationConfig(
+                    component_configs={"language_model": quant_config},
+                    default_config=None,
+                )
+                vllm_config = replace(vllm_config, quant_config=quant_config)
+                visual_quant_config = None
+        else:
+            visual_quant_config = None
+            language_quant_config = None
+
         with self._mark_tower_model(vllm_config, "audio"):
             if multimodal_config.get_limit_per_prompt("audio"):
                 self.audio_tower = Qwen2_5OmniAudioEncoder(thinker_config.audio_config)
@@ -370,15 +413,18 @@ class Qwen2_5OmniThinkerForConditionalGeneration(
                 self.visual = Qwen2_5_VisionTransformer(
                     vision_config=thinker_config.vision_config,
                     norm_eps=getattr(thinker_config.text_config, "rms_norm_eps", 1e-6),
-                    quant_config=quant_config,
+                    quant_config=visual_quant_config,
                     prefix=maybe_prefix(prefix, "visual"),
                 )
             else:
                 self.visual = None
 
         with self._mark_language_model(vllm_config):
+            lm_vllm_config = vllm_config
+            if language_quant_config is not quant_config:
+                lm_vllm_config = replace(vllm_config, quant_config=language_quant_config)
             self.language_model = init_vllm_registered_model(
-                vllm_config=vllm_config,
+                vllm_config=lm_vllm_config,
                 prefix=maybe_prefix(prefix, "language_model"),
                 hf_config=thinker_config.text_config,
                 architectures=["Qwen2ForCausalLM"],
