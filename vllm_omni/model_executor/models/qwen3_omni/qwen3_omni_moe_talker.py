@@ -100,11 +100,18 @@ class Qwen3OmniMoeTalkerForConditionalGeneration(
     def __init__(self, *, vllm_config: VllmConfig, prefix: str = ""):
         super().__init__()
         talker_config: Qwen3OmniMoeTalkerConfig = vllm_config.model_config.hf_config
-        rope_params = talker_config.text_config.rope_scaling
+        rope_params = getattr(talker_config.text_config, "rope_scaling", None)
         if rope_params is None:
-            # Newer transformers use rope_parameters instead of rope_scaling
             rope_params = getattr(talker_config.text_config, "rope_parameters", None) or {}
-        rope_params["rope_theta"] = talker_config.text_config.rope_theta
+        rope_params = dict(rope_params)
+        # rope_theta may live inside the rope_scaling dict (newer transformers)
+        # or as a top-level config attribute (older transformers).  Use setdefault
+        # so we never overwrite a value that is already present.
+        rope_params.setdefault(
+            "rope_theta",
+            getattr(talker_config.text_config, "rope_theta",
+                    rope_params.get("rope_theta", 1000000)),
+        )
         talker_config.text_config.rope_parameters = rope_params
         quant_config = vllm_config.quant_config
         if isinstance(quant_config, ComponentQuantizationConfig):

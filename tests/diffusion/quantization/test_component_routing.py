@@ -147,6 +147,57 @@ class TestApplyVllmMapper:
         cfg.apply_vllm_mapper(THINKER_MAPPER)
         assert id(cfg) == original_id
 
+    # -- Stage prefix tests (runtime prefix = container + internal name) --
+
+    def test_thinker_block_has_stage_prefix(self):
+        """Mapped block name must start with 'thinker.' so runtime startswith() works."""
+        cfg = _make_inc_config("thinker.model.layers,talker.model.layers")
+        cfg.apply_vllm_mapper(THINKER_MAPPER)
+        assert "thinker.language_model.model.layers" in cfg.block_name_to_quantize
+
+    def test_talker_block_has_stage_prefix(self):
+        """Mapped block name must start with 'talker.' so runtime startswith() works."""
+        cfg = _make_inc_config("thinker.model.layers,talker.model.layers")
+        cfg.apply_vllm_mapper(TALKER_MAPPER)
+        assert "talker.language_model.model.layers" in cfg.block_name_to_quantize
+
+    def test_thinker_block_matches_runtime_prefix(self):
+        """Simulates get_layer_config's startswith() check for FusedMoE layers."""
+        cfg = _make_inc_config("thinker.model.layers,talker.model.layers")
+        cfg.apply_vllm_mapper(THINKER_MAPPER)
+        runtime_prefix = "thinker.language_model.model.layers.0.mlp.experts"
+        assert any(runtime_prefix.startswith(b) for b in cfg.block_name_to_quantize)
+
+    def test_talker_block_matches_runtime_prefix(self):
+        """Simulates get_layer_config's startswith() check for talker FusedMoE."""
+        cfg = _make_inc_config("thinker.model.layers,talker.model.layers")
+        cfg.apply_vllm_mapper(TALKER_MAPPER)
+        runtime_prefix = "talker.language_model.model.layers.0.mlp.experts"
+        assert any(runtime_prefix.startswith(b) for b in cfg.block_name_to_quantize)
+
+    def test_extra_config_plain_key_has_stage_prefix(self):
+        """Plain extra_config keys are remapped with stage prefix."""
+        extra = {
+            "talker.model.layers.0.mlp.shared_expert_gate": {"bits": 16},
+        }
+        cfg = _make_inc_config("talker.model.layers", extra_config=extra)
+        cfg.apply_vllm_mapper(TALKER_MAPPER)
+        assert "talker.language_model.model.layers.0.mlp.shared_expert_gate" in cfg.extra_config
+
+    def test_extra_config_regex_key_still_works(self):
+        """Regex extra_config keys use re.search so no stage prefix needed."""
+        import re
+        extra = {
+            r".*thinker\.model\.layers\.0\.mlp\.gate.*": {"bits": 16},
+        }
+        cfg = _make_inc_config("thinker.model.layers", extra_config=extra)
+        cfg.apply_vllm_mapper(THINKER_MAPPER)
+        runtime_name = "thinker.language_model.model.layers.0.mlp.gate"
+        matched = any(
+            re.search(k, runtime_name) for k in cfg.extra_config
+        )
+        assert matched
+
 
 # ===================================================================
 # 2. OmniINCConfig upgrade helpers
