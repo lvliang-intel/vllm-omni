@@ -8,6 +8,8 @@ import pytest
 import torch
 from unittest.mock import MagicMock
 
+import copy
+
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig,
 )
@@ -15,8 +17,8 @@ from vllm.model_executor.models.utils import WeightsMapper
 
 from vllm_omni.quantization.component_config import (
     ComponentQuantizationConfig,
-    remap_quant_config_with_hf_mapper,
 )
+from vllm_omni.quantization.inc_config import OmniINCConfig
 
 pytestmark = [pytest.mark.core_model]
 
@@ -56,15 +58,13 @@ class _MockQuantConfig(QuantizationConfig):
 
 def _make_inc_config(block_names="thinker.model.layers,talker.model.layers",
                      extra_config=None):
-    """Create a mock INC-like config with block_name_to_quantize."""
-    return _MockQuantConfig(
-        "inc",
-        block_name_to_quantize=block_names,
-        extra_config=extra_config or {},
+    """Create a real OmniINCConfig with block_name_to_quantize."""
+    return OmniINCConfig(
         weight_bits=4,
         group_size=128,
         sym=True,
-        packed_modules_mapping={},
+        block_name_to_quantize=block_names,
+        extra_config=extra_config or {},
     )
 
 
@@ -83,63 +83,37 @@ TALKER_MAPPER = WeightsMapper(orig_to_new_prefix={
 
 
 # ===================================================================
-# 1. remap_quant_config_with_hf_mapper
+# 1. OmniINCConfig.apply_vllm_mapper
 # ===================================================================
 
-class TestRemapQuant:
-
-    def test_no_block_name_returns_same_object(self):
-        """Configs without block_name_to_quantize are returned unchanged (identity)."""
-        for name in ("modelopt", "fp8", "modelopt_fp4"):
-            cfg = _MockQuantConfig(name)
-            result = remap_quant_config_with_hf_mapper(
-                cfg, hf_to_vllm_mapper=THINKER_MAPPER, stage_prefix="thinker"
-            )
-            assert result is cfg
+class TestApplyVllmMapper:
 
     def test_inc_csv_string_normalized_to_list(self):
         """CSV string block_name_to_quantize is split into a list."""
         cfg = _make_inc_config("thinker.model.layers,talker.model.layers")
-        result = remap_quant_config_with_hf_mapper(
-            cfg, hf_to_vllm_mapper=THINKER_MAPPER, stage_prefix="thinker"
-        )
-        assert isinstance(result.block_name_to_quantize, list)
-
-    def test_inc_deep_copied(self):
-        """Remap creates a deep copy -- original config is not mutated."""
-        cfg = _make_inc_config("thinker.model.layers")
-        original_blocks = cfg.block_name_to_quantize
-        result = remap_quant_config_with_hf_mapper(
-            cfg, hf_to_vllm_mapper=THINKER_MAPPER, stage_prefix="thinker"
-        )
-        assert result is not cfg
-        assert cfg.block_name_to_quantize == original_blocks  # original untouched
+        cfg.apply_vllm_mapper(THINKER_MAPPER)
+        assert isinstance(cfg.block_name_to_quantize, list)
 
     def test_thinker_blocks_remapped(self):
-        """thinker.model.layers -> thinker.language_model.model.layers after remap."""
+        """thinker.model.layers -> language_model.model.layers after apply_vllm_mapper."""
         cfg = _make_inc_config("thinker.model.layers,talker.model.layers")
-        result = remap_quant_config_with_hf_mapper(
-            cfg, hf_to_vllm_mapper=THINKER_MAPPER, stage_prefix="thinker"
-        )
-        assert all(b.startswith("thinker.") for b in result.block_name_to_quantize)
-        assert any("language_model.model.layers" in b for b in result.block_name_to_quantize)
+        cfg.apply_vllm_mapper(THINKER_MAPPER)
+        assert any("language_model.model.layers" in b for b in cfg.block_name_to_quantize)
 
-    def test_cross_stage_blocks_filtered_out(self):
-        """Blocks belonging to other stages are filtered out."""
+    def test_cross_stage_blocks_kept_unchanged(self):
+        """Blocks not matching any mapper prefix are kept unchanged (harmless)."""
         cfg = _make_inc_config("thinker.model.layers,talker.model.layers")
-        result = remap_quant_config_with_hf_mapper(
-            cfg, hf_to_vllm_mapper=THINKER_MAPPER, stage_prefix="thinker"
-        )
-        assert not any("talker" in b for b in result.block_name_to_quantize)
+        cfg.apply_vllm_mapper(THINKER_MAPPER)
+        # talker.model.layers doesn't match any thinker mapper prefix → stays as-is
+        assert "talker.model.layers" in cfg.block_name_to_quantize
 
     def test_talker_remap(self):
-        """Remap from talker side: only talker blocks survive."""
+        """talker.model.layers -> language_model.model.layers with talker mapper."""
         cfg = _make_inc_config("thinker.model.layers,talker.model.layers")
-        result = remap_quant_config_with_hf_mapper(
-            cfg, hf_to_vllm_mapper=TALKER_MAPPER, stage_prefix="talker"
-        )
-        assert all(b.startswith("talker.") for b in result.block_name_to_quantize)
-        assert not any("thinker" in b for b in result.block_name_to_quantize)
+        cfg.apply_vllm_mapper(TALKER_MAPPER)
+        assert any("language_model.model.layers" in b for b in cfg.block_name_to_quantize)
+        # thinker.model.layers doesn't match talker mapper → stays as-is
+        assert "thinker.model.layers" in cfg.block_name_to_quantize
 
     def test_extra_config_keys_remapped(self):
         """Regex keys in extra_config get their escaped-dot prefixes remapped."""
@@ -147,39 +121,60 @@ class TestRemapQuant:
             r".*thinker\.model\.layers\.0\.mlp\.gate.*": {"bits": 16, "data_type": "float"},
         }
         cfg = _make_inc_config("thinker.model.layers", extra_config=extra)
-        result = remap_quant_config_with_hf_mapper(
-            cfg, hf_to_vllm_mapper=THINKER_MAPPER, stage_prefix="thinker"
-        )
+        cfg.apply_vllm_mapper(THINKER_MAPPER)
         # The key should now reference the vLLM runtime path
-        assert any("language_model" in k for k in result.extra_config)
+        assert any("language_model" in k for k in cfg.extra_config)
         # Original thinker\.model prefix should be replaced
-        assert not any(r"thinker\.model" in k for k in result.extra_config)
+        assert not any(r"thinker\.model" in k for k in cfg.extra_config)
 
     def test_single_block_name(self):
         """Only one block name (not CSV) still works."""
         cfg = _make_inc_config("thinker.model.layers")
-        result = remap_quant_config_with_hf_mapper(
-            cfg, hf_to_vllm_mapper=THINKER_MAPPER, stage_prefix="thinker"
-        )
-        assert len(result.block_name_to_quantize) == 1
-        assert result.block_name_to_quantize[0].startswith("thinker.")
+        cfg.apply_vllm_mapper(THINKER_MAPPER)
+        assert any("language_model.model.layers" in b for b in cfg.block_name_to_quantize)
 
     def test_already_list_block_names(self):
         """block_name_to_quantize already a list (not CSV string) works."""
         cfg = _make_inc_config(["thinker.model.layers", "talker.model.layers"])
-        result = remap_quant_config_with_hf_mapper(
-            cfg, hf_to_vllm_mapper=THINKER_MAPPER, stage_prefix="thinker"
-        )
-        assert isinstance(result.block_name_to_quantize, list)
-        assert all(b.startswith("thinker.") for b in result.block_name_to_quantize)
+        cfg.apply_vllm_mapper(THINKER_MAPPER)
+        assert isinstance(cfg.block_name_to_quantize, list)
+        assert any("language_model.model.layers" in b for b in cfg.block_name_to_quantize)
 
-    def test_empty_stage_prefix(self):
-        """Empty stage_prefix doesn't add a dot prefix and doesn't filter."""
+    def test_mutates_in_place(self):
+        """apply_vllm_mapper mutates the config in place (same as upstream INCConfig)."""
         cfg = _make_inc_config("thinker.model.layers")
-        result = remap_quant_config_with_hf_mapper(
-            cfg, hf_to_vllm_mapper=THINKER_MAPPER, stage_prefix=""
-        )
-        assert len(result.block_name_to_quantize) >= 1
+        original_id = id(cfg)
+        cfg.apply_vllm_mapper(THINKER_MAPPER)
+        assert id(cfg) == original_id
+
+
+# ===================================================================
+# 2. OmniINCConfig upgrade helpers
+# ===================================================================
+
+class TestOmniINCConfigUpgrade:
+
+    def test_maybe_upgrade_none(self):
+        assert OmniINCConfig.maybe_upgrade(None) is None
+
+    def test_maybe_upgrade_non_inc(self):
+        """Non-INC configs are passed through unchanged."""
+        cfg = _MockQuantConfig("fp8")
+        assert OmniINCConfig.maybe_upgrade(cfg) is cfg
+
+    def test_maybe_upgrade_already_omni(self):
+        """Already OmniINCConfig is returned as-is."""
+        cfg = _make_inc_config()
+        assert OmniINCConfig.maybe_upgrade(cfg) is cfg
+
+    def test_maybe_upgrade_vanilla_inc(self):
+        """Vanilla INCConfig is promoted to OmniINCConfig."""
+        from vllm.model_executor.layers.quantization.inc import INCConfig
+        vanilla = INCConfig(weight_bits=4, group_size=128, sym=True)
+        upgraded = OmniINCConfig.maybe_upgrade(vanilla)
+        assert isinstance(upgraded, OmniINCConfig)
+        assert upgraded.weight_bits == 4
+        assert upgraded.group_size == 128
 
 
 # ===================================================================

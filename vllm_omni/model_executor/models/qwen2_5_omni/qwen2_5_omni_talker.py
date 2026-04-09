@@ -1,5 +1,4 @@
 from collections.abc import Iterable
-from dataclasses import replace
 from functools import cached_property
 
 import torch
@@ -32,7 +31,6 @@ from vllm_omni.model_executor.models.qwen2_5_omni.qwen2_5_omni_thinker import (
     Qwen2_5OmniThinkerDummyInputsBuilder,
     Qwen2_5OmniThinkerMultiModalProcessor,
 )
-from vllm_omni.quantization.component_config import ComponentQuantizationConfig
 
 
 @MULTIMODAL_REGISTRY.register_processor(
@@ -61,14 +59,9 @@ class Qwen2_5OmniTalkerForConditionalGeneration(
         super().__init__()
         config: Qwen2_5OmniTalkerConfig = vllm_config.model_config.hf_config
         quant_config = vllm_config.quant_config
-        if isinstance(quant_config, ComponentQuantizationConfig):
-            quant_config = quant_config.resolve("talker")
-            vllm_config = replace(vllm_config, quant_config=quant_config)
-        vllm_config = self._remap_quant_config(vllm_config, prefix)
-        quant_config = vllm_config.quant_config
-        self.quant_config = quant_config
-        self.prefix = prefix
         self.vllm_config = vllm_config
+        self.prefix = prefix
+        self.quant_config = quant_config
 
         if hasattr(config, "talker_config"):
             self.config = config.talker_config
@@ -93,15 +86,10 @@ class Qwen2_5OmniTalkerForConditionalGeneration(
 
     def init_multi_modal(self, thinker_config):
         self.audio_tower = Qwen2_5OmniAudioEncoder(thinker_config.audio_config)
-
-        _PRE_QUANTIZED_METHODS = {"modelopt", "modelopt_fp4", "modelopt_mxfp8"}
         self.visual = Qwen2_5_VisionTransformer(
             vision_config=thinker_config.vision_config,
             norm_eps=getattr(thinker_config.text_config, "rms_norm_eps", 1e-6),
-            quant_config=self.quant_config if (
-                        self.quant_config is not None
-                        and self.quant_config.get_name() in _PRE_QUANTIZED_METHODS
-                        ) else None,
+            quant_config=self.quant_config,
             prefix=maybe_prefix(self.prefix, "visual"),
         )
 

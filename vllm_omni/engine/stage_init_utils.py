@@ -281,6 +281,14 @@ def build_vllm_config(
     vllm_config = omni_engine_args.create_engine_config(usage_context=UsageContext.LLM_CLASS)
     executor_class = Executor.get_class(vllm_config)
 
+    # Upgrade vanilla INCConfig to OmniINCConfig for multi-stage models.
+    from vllm_omni.quantization.inc_config import OmniINCConfig
+
+    upgraded = OmniINCConfig.maybe_upgrade(vllm_config.quant_config)
+    if upgraded is not vllm_config.quant_config:
+        from dataclasses import replace
+        vllm_config = replace(vllm_config, quant_config=upgraded)
+
     return vllm_config, executor_class
 
 
