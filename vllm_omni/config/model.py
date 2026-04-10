@@ -57,9 +57,7 @@ class OmniModelArchConfigConvertor(ModelArchConfigConvertorBase):
                     hf_prefix = self.stage_config_name.removesuffix("_config") + "."
                     if isinstance(block_names, str):
                         block_names = [b.strip() for b in block_names.split(",")]
-                    if isinstance(block_names, list) and not any(
-                        b.startswith(hf_prefix) for b in block_names
-                    ):
+                    if isinstance(block_names, list) and not any(b.startswith(hf_prefix) for b in block_names):
                         # This stage is not listed → no quantization.
                         return None
                 return top_quant

@@ -287,6 +287,7 @@ def build_vllm_config(
     upgraded = OmniINCConfig.maybe_upgrade(vllm_config.quant_config)
     if upgraded is not vllm_config.quant_config:
         from dataclasses import replace
+
         vllm_config = replace(vllm_config, quant_config=upgraded)
 
     return vllm_config, executor_class

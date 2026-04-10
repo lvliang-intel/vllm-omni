@@ -109,8 +109,7 @@ class Qwen3OmniMoeTalkerForConditionalGeneration(
         # so we never overwrite a value that is already present.
         rope_params.setdefault(
             "rope_theta",
-            getattr(talker_config.text_config, "rope_theta",
-                    rope_params.get("rope_theta", 1000000)),
+            getattr(talker_config.text_config, "rope_theta", rope_params.get("rope_theta", 1000000)),
         )
         talker_config.text_config.rope_parameters = rope_params
         quant_config = vllm_config.quant_config
