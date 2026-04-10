@@ -104,9 +104,12 @@ class Qwen3OmniMoeTalkerForConditionalGeneration(
         if rope_params is None:
             rope_params = getattr(talker_config.text_config, "rope_parameters", None) or {}
         rope_params = dict(rope_params)
-        # rope_theta may live inside the rope_scaling dict (newer transformers)
-        # or as a top-level config attribute (older transformers).  Use setdefault
-        # so we never overwrite a value that is already present.
+        # In transformers <5.0.0, rope_theta is a top-level config attribute
+        # (e.g. config.text_config.rope_theta = 1000000.0).
+        # In transformers >=5.0.0 (PR #39847), rope_theta moved inside the
+        # rope_parameters dict (e.g. config.text_config.rope_parameters =
+        # {"rope_theta": 1000000.0, "rope_type": "default"}).
+        # Use setdefault so we never overwrite a value already present.
         rope_params.setdefault(
             "rope_theta",
             getattr(talker_config.text_config, "rope_theta", rope_params.get("rope_theta", 1000000)),
