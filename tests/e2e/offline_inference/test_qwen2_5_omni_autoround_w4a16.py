@@ -2,7 +2,10 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 """E2E tests for Qwen2.5-Omni AutoRound W4A16 quantized inference.
 
-These tests require:
+These tests cover text, audio, image, video, and mixed-modality inputs
+to verify multimodal understanding with quantized weights.
+
+Requirements:
   - CUDA GPUs (4x L4 / 24 GB or equivalent)
   - The quantized model checkpoint (Intel/Qwen2.5-Omni-7B-int4-AutoRound)
 """
@@ -15,6 +18,7 @@ import pytest
 from tests.conftest import (
     generate_synthetic_audio,
     generate_synthetic_image,
+    generate_synthetic_video,
     modify_stage_config,
 )
 from tests.utils import hardware_test
@@ -44,19 +48,10 @@ stage_config = _get_stage_config()
 
 # Parametrise: (model, stage_config)
 quant_params = [(QUANTIZED_MODEL, stage_config)]
-baseline_params = [(BASELINE_MODEL, stage_config)]
-
-
-def _get_question(prompt_type="text_only"):
-    prompts = {
-        "mix": "What is recited in the audio? What is in this image? Describe the video briefly.",
-        "text_only": "What is the capital of China?",
-    }
-    return prompts.get(prompt_type, prompts["text_only"])
 
 
 # ------------------------------------------------------------------
-# Test: quantized model produces valid text output
+# Test: text-only input → text output
 # ------------------------------------------------------------------
 
 
@@ -64,17 +59,19 @@ def _get_question(prompt_type="text_only"):
 @pytest.mark.omni
 @hardware_test(res={"cuda": "L4"}, num_cards=4)
 @pytest.mark.parametrize("omni_runner", quant_params, indirect=True)
-def test_qwen2_5_omni_autoround_text_output(omni_runner, omni_runner_handler):
-    """Load the W4A16 quantized Qwen2.5-Omni model and verify it produces valid text."""
-    request_config = {"prompts": _get_question("text_only"), "modalities": ["text"]}
+def test_text_to_text(omni_runner, omni_runner_handler):
+    """Text input → text output with W4A16 quantized Qwen2.5-Omni."""
+    request_config = {
+        "prompts": "What is the capital of China?",
+        "modalities": ["text"],
+    }
     response = omni_runner_handler.send_request(request_config)
     assert response.success, f"Request failed: {response.error_message}"
-    assert response.text_content, "Expected non-empty text output from quantized model"
-    assert len(response.text_content.strip()) > 0, "Text output is blank"
+    assert response.text_content and len(response.text_content.strip()) > 0
 
 
 # ------------------------------------------------------------------
-# Test: quantized model produces valid audio output from mixed input
+# Test: audio input → text output
 # ------------------------------------------------------------------
 
 
@@ -82,15 +79,88 @@ def test_qwen2_5_omni_autoround_text_output(omni_runner, omni_runner_handler):
 @pytest.mark.omni
 @hardware_test(res={"cuda": "L4"}, num_cards=4)
 @pytest.mark.parametrize("omni_runner", quant_params, indirect=True)
-def test_qwen2_5_omni_autoround_audio_output(omni_runner, omni_runner_handler):
-    """Load the W4A16 quantized Qwen2.5-Omni and verify it produces audio output."""
+def test_audio_to_text(omni_runner, omni_runner_handler):
+    """Audio input → text output with W4A16 quantized Qwen2.5-Omni."""
+    audio = generate_synthetic_audio(1, 1, 16000)["np_array"]
+    if len(audio.shape) == 2:
+        audio = audio.squeeze()
+
+    request_config = {
+        "prompts": "What is the content of this audio?",
+        "audios": (audio, 16000),
+        "modalities": ["text"],
+    }
+    response = omni_runner_handler.send_request(request_config)
+    assert response.success, f"Request failed: {response.error_message}"
+    assert response.text_content and len(response.text_content.strip()) > 0
+
+
+# ------------------------------------------------------------------
+# Test: image input → text output
+# ------------------------------------------------------------------
+
+
+@pytest.mark.advanced_model
+@pytest.mark.omni
+@hardware_test(res={"cuda": "L4"}, num_cards=4)
+@pytest.mark.parametrize("omni_runner", quant_params, indirect=True)
+def test_image_to_text(omni_runner, omni_runner_handler):
+    """Image input → text output with W4A16 quantized Qwen2.5-Omni."""
+    image = generate_synthetic_image(16, 16)["np_array"]
+
+    request_config = {
+        "prompts": "Describe what you see in this image.",
+        "images": image,
+        "modalities": ["text"],
+    }
+    response = omni_runner_handler.send_request(request_config)
+    assert response.success, f"Request failed: {response.error_message}"
+    assert response.text_content and len(response.text_content.strip()) > 0
+
+
+# ------------------------------------------------------------------
+# Test: video input → text output
+# ------------------------------------------------------------------
+
+
+@pytest.mark.advanced_model
+@pytest.mark.omni
+@hardware_test(res={"cuda": "L4"}, num_cards=4)
+@pytest.mark.parametrize("omni_runner", quant_params, indirect=True)
+def test_video_to_text(omni_runner, omni_runner_handler):
+    """Video input → text output with W4A16 quantized Qwen2.5-Omni."""
+    video = generate_synthetic_video(16, 16, 30)["np_array"]
+
+    request_config = {
+        "prompts": "Describe the video briefly.",
+        "videos": video,
+        "modalities": ["text"],
+    }
+    response = omni_runner_handler.send_request(request_config)
+    assert response.success, f"Request failed: {response.error_message}"
+    assert response.text_content and len(response.text_content.strip()) > 0
+
+
+# ------------------------------------------------------------------
+# Test: mixed modality (audio + image + video) → audio output
+# ------------------------------------------------------------------
+
+
+@pytest.mark.advanced_model
+@pytest.mark.omni
+@hardware_test(res={"cuda": "L4"}, num_cards=4)
+@pytest.mark.parametrize("omni_runner", quant_params, indirect=True)
+def test_mix_to_audio(omni_runner, omni_runner_handler):
+    """Mixed-modality input → audio output with W4A16 quantized Qwen2.5-Omni."""
+    video = generate_synthetic_video(16, 16, 30)["np_array"]
     image = generate_synthetic_image(16, 16)["np_array"]
     audio = generate_synthetic_audio(1, 1, 16000)["np_array"]
     if len(audio.shape) == 2:
         audio = audio.squeeze()
 
     request_config = {
-        "prompts": _get_question("mix"),
+        "prompts": "What is recited in the audio? What is in this image? Describe the video briefly.",
+        "videos": video,
         "images": image,
         "audios": (audio, 16000),
         "modalities": ["audio"],
