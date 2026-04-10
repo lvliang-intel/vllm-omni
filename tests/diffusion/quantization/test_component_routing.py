@@ -1,15 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
-"""Tests for component routing for quantization.
+"""Tests for component routing for quantization."""
 
-"""
+from unittest.mock import MagicMock
 
 import pytest
 import torch
-from unittest.mock import MagicMock
-
-import copy
-
 from vllm.model_executor.layers.quantization.base_config import (
     QuantizationConfig,
 )
@@ -26,6 +22,7 @@ pytestmark = [pytest.mark.core_model]
 # ---------------------------------------------------------------------------
 # Helpers: lightweight mock quant configs
 # ---------------------------------------------------------------------------
+
 
 class _MockQuantConfig(QuantizationConfig):
     """Minimal mock that only implements get_name()."""
@@ -56,8 +53,7 @@ class _MockQuantConfig(QuantizationConfig):
         return []
 
 
-def _make_inc_config(block_names="thinker.model.layers,talker.model.layers",
-                     extra_config=None):
+def _make_inc_config(block_names="thinker.model.layers,talker.model.layers", extra_config=None):
     """Create a real OmniINCConfig with block_name_to_quantize."""
     return OmniINCConfig(
         weight_bits=4,
@@ -68,26 +64,30 @@ def _make_inc_config(block_names="thinker.model.layers,talker.model.layers",
     )
 
 
-THINKER_MAPPER = WeightsMapper(orig_to_new_prefix={
-    "thinker.lm_head.": "language_model.lm_head.",
-    "thinker.model.": "language_model.model.",
-    "thinker.": "",
-})
+THINKER_MAPPER = WeightsMapper(
+    orig_to_new_prefix={
+        "thinker.lm_head.": "language_model.lm_head.",
+        "thinker.model.": "language_model.model.",
+        "thinker.": "",
+    }
+)
 
-TALKER_MAPPER = WeightsMapper(orig_to_new_prefix={
-    "talker.codec_head.": "language_model.lm_head.",
-    "talker.model.": "language_model.model.",
-    "talker.thinker_to_talker_proj.": "thinker_to_talker_proj.",
-    "talker.": "",
-})
+TALKER_MAPPER = WeightsMapper(
+    orig_to_new_prefix={
+        "talker.codec_head.": "language_model.lm_head.",
+        "talker.model.": "language_model.model.",
+        "talker.thinker_to_talker_proj.": "thinker_to_talker_proj.",
+        "talker.": "",
+    }
+)
 
 
 # ===================================================================
 # 1. OmniINCConfig.apply_vllm_mapper
 # ===================================================================
 
-class TestApplyVllmMapper:
 
+class TestApplyVllmMapper:
     def test_inc_csv_string_normalized_to_list(self):
         """CSV string block_name_to_quantize is split into a list."""
         cfg = _make_inc_config("thinker.model.layers,talker.model.layers")
@@ -187,15 +187,14 @@ class TestApplyVllmMapper:
     def test_extra_config_regex_key_still_works(self):
         """Regex extra_config keys use re.search so no stage prefix needed."""
         import re
+
         extra = {
             r".*thinker\.model\.layers\.0\.mlp\.gate.*": {"bits": 16},
         }
         cfg = _make_inc_config("thinker.model.layers", extra_config=extra)
         cfg.apply_vllm_mapper(THINKER_MAPPER)
         runtime_name = "thinker.language_model.model.layers.0.mlp.gate"
-        matched = any(
-            re.search(k, runtime_name) for k in cfg.extra_config
-        )
+        matched = any(re.search(k, runtime_name) for k in cfg.extra_config)
         assert matched
 
 
@@ -203,8 +202,8 @@ class TestApplyVllmMapper:
 # 2. OmniINCConfig upgrade helpers
 # ===================================================================
 
-class TestOmniINCConfigUpgrade:
 
+class TestOmniINCConfigUpgrade:
     def test_maybe_upgrade_none(self):
         assert OmniINCConfig.maybe_upgrade(None) is None
 
@@ -221,6 +220,7 @@ class TestOmniINCConfigUpgrade:
     def test_maybe_upgrade_vanilla_inc(self):
         """Vanilla INCConfig is promoted to OmniINCConfig."""
         from vllm.model_executor.layers.quantization.inc import INCConfig
+
         vanilla = INCConfig(weight_bits=4, group_size=128, sym=True)
         upgraded = OmniINCConfig.maybe_upgrade(vanilla)
         assert isinstance(upgraded, OmniINCConfig)
@@ -231,6 +231,7 @@ class TestOmniINCConfigUpgrade:
 # ===================================================================
 # 2. Three-branch thinker routing (simulated)
 # ===================================================================
+
 
 def _simulate_thinker_routing(quant_config):
     """Simulate the three-branch routing in thinker __init__.
@@ -258,7 +259,6 @@ def _simulate_thinker_routing(quant_config):
 
 
 class TestThinkerRouting:
-
     def test_none(self):
         vis, lang, wrapped = _simulate_thinker_routing(None)
         assert vis is None
@@ -312,6 +312,7 @@ class TestThinkerRouting:
 # 3. Talker visual routing (init_multi_modal guard)
 # ===================================================================
 
+
 def _simulate_talker_visual_routing(quant_config):
     """Simulate the talker init_multi_modal visual routing."""
     _PRE_QUANTIZED_METHODS = {"modelopt", "modelopt_fp4", "modelopt_mxfp8"}
@@ -321,7 +322,6 @@ def _simulate_talker_visual_routing(quant_config):
 
 
 class TestTalkerVisualRouting:
-
     def test_none(self):
         assert _simulate_talker_visual_routing(None) is None
 
@@ -346,14 +346,12 @@ class TestTalkerVisualRouting:
 # 4. ComponentQuantizationConfig.resolve
 # ===================================================================
 
-class TestComponentResolve:
 
+class TestComponentResolve:
     def test_longest_prefix_match(self):
         a = _MockQuantConfig("a")
         b = _MockQuantConfig("b")
-        cqc = ComponentQuantizationConfig(
-            component_configs={"language_model": a, "language_model.model": b}
-        )
+        cqc = ComponentQuantizationConfig(component_configs={"language_model": a, "language_model.model": b})
         assert cqc.resolve("language_model.model.layers.0") is b
         assert cqc.resolve("language_model.lm_head") is a
 

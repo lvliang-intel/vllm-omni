@@ -5,9 +5,9 @@ This example shows how to use vLLM-Omni for running offline inference
 with the correct prompt format on Qwen2.5-Omni
 """
 
+import json
 import os
 import time
-import json
 from typing import NamedTuple
 
 import librosa
