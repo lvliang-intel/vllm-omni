@@ -11,13 +11,22 @@ Requirements:
 """
 
 import os
-
-os.environ["VLLM_WORKER_MULTIPROC_METHOD"] = "spawn"
-os.environ["VLLM_TEST_CLEAN_GPU_MEMORY"] = "0"
-
 from pathlib import Path
 
 import pytest
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _qwen3_omni_env():
+    """Set env vars required by multi-stage worker spawning.
+
+    Must run before CUDA context init.  Reverted after every test module
+    so that values do not leak into unrelated test files.
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+        mp.setenv("VLLM_TEST_CLEAN_GPU_MEMORY", "0")
+        yield
 
 from tests.conftest import (
     generate_synthetic_audio,

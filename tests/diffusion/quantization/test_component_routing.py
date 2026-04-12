@@ -11,6 +11,9 @@ from vllm.model_executor.layers.quantization.base_config import (
 )
 from vllm.model_executor.models.utils import WeightsMapper
 
+from vllm_omni.model_executor.models.qwen3_omni.qwen3_omni_moe_thinker import (
+    PRE_QUANTIZED_METHODS,
+)
 from vllm_omni.quantization.component_config import (
     ComponentQuantizationConfig,
 )
@@ -238,14 +241,12 @@ def _simulate_thinker_routing(quant_config):
 
     Returns (visual_quant_config, language_quant_config, wrapped_vllm_quant).
     """
-    _PRE_QUANTIZED_METHODS = {"modelopt", "modelopt_fp4", "modelopt_mxfp8"}
-
     if isinstance(quant_config, ComponentQuantizationConfig):
         visual_quant_config = quant_config.resolve("visual")
         language_quant_config = quant_config.resolve("language_model")
         return visual_quant_config, language_quant_config, quant_config
     elif quant_config is not None:
-        if quant_config.get_name() in _PRE_QUANTIZED_METHODS:
+        if quant_config.get_name() in PRE_QUANTIZED_METHODS:
             return quant_config, quant_config, quant_config
         else:
             language_quant_config = quant_config
@@ -315,8 +316,7 @@ class TestThinkerRouting:
 
 def _simulate_talker_visual_routing(quant_config):
     """Simulate the talker init_multi_modal visual routing."""
-    _PRE_QUANTIZED_METHODS = {"modelopt", "modelopt_fp4", "modelopt_mxfp8"}
-    if quant_config is not None and quant_config.get_name() in _PRE_QUANTIZED_METHODS:
+    if quant_config is not None and quant_config.get_name() in PRE_QUANTIZED_METHODS:
         return quant_config
     return None
 
