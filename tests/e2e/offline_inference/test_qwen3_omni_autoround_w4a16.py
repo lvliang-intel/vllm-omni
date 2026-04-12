@@ -15,19 +15,6 @@ from pathlib import Path
 
 import pytest
 
-
-@pytest.fixture(scope="module", autouse=True)
-def _qwen3_omni_env():
-    """Set env vars required by multi-stage worker spawning.
-
-    Must run before CUDA context init.  Reverted after every test module
-    so that values do not leak into unrelated test files.
-    """
-    with pytest.MonkeyPatch.context() as mp:
-        mp.setenv("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
-        mp.setenv("VLLM_TEST_CLEAN_GPU_MEMORY", "0")
-        yield
-
 from tests.conftest import (
     generate_synthetic_audio,
     generate_synthetic_image,
@@ -42,6 +29,19 @@ BASELINE_MODEL = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
 # Allow overriding via environment for local testing
 QUANTIZED_MODEL = os.environ.get("QWEN3_OMNI_AUTOROUND_MODEL", QUANTIZED_MODEL)
 BASELINE_MODEL = os.environ.get("QWEN3_OMNI_BASELINE_MODEL", BASELINE_MODEL)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _qwen3_omni_env():
+    """Set env vars required by multi-stage worker spawning.
+
+    Must run before CUDA context init.  Reverted after every test module
+    so that values do not leak into unrelated test files.
+    """
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
+        mp.setenv("VLLM_TEST_CLEAN_GPU_MEMORY", "0")
+        yield
 
 
 def _get_stage_config():
