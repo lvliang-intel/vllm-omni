@@ -461,6 +461,7 @@ class TestInitializeStagesRouting:
         engine.stage_configs = stage_cfgs
         engine.num_stages = len(stage_cfgs)
         engine.async_chunk = False
+        engine.log_stats = False
         engine.single_stage_mode = single_stage_mode
         engine._single_stage_id_filter = stage_id_filter
         engine._omni_master_address = omni_master_address
@@ -1366,6 +1367,7 @@ class TestLaunchLlmStageSingleStageMode:
     def _build_engine_with_oms(self) -> AsyncOmniEngine:
         engine = object.__new__(AsyncOmniEngine)
         engine.model = "fake-model"
+        engine.log_stats = False
         engine.single_stage_mode = True
         engine._single_stage_id_filter = 0
         engine._llm_stage_launch_lock = threading.Lock()
@@ -1446,6 +1448,7 @@ class TestLaunchLlmStageSingleStageMode:
         """~single_stage_mode → spawn_stage_core + complete_stage_handshake."""
         engine = object.__new__(AsyncOmniEngine)
         engine.model = "fake-model"
+        engine.log_stats = False
         engine.single_stage_mode = False
         engine._omni_master_server = None
         engine._llm_stage_launch_lock = threading.Lock()
@@ -1459,6 +1462,7 @@ class TestLaunchLlmStageSingleStageMode:
 
         fake_proc = Mock()
         fake_handshake_address = "ipc:///tmp/fake-handshake"
+        stage_init_timeout = 60
 
         with (
             patch("vllm_omni.engine.async_omni_engine.setup_stage_devices"),
@@ -1484,7 +1488,7 @@ class TestLaunchLlmStageSingleStageMode:
                 stage_cfg=_make_stage_cfg(0),
                 metadata=metadata,
                 stage_connector_spec={},
-                stage_init_timeout=60,
+                stage_init_timeout=stage_init_timeout,
                 llm_stage_launch_lock=threading.Lock(),
             )
 
@@ -1498,6 +1502,7 @@ class TestLaunchLlmStageSingleStageMode:
             fake_handshake_address,
             fake_addresses,
             fake_vllm_config,
+            stage_init_timeout,
         )
         mock_omni.assert_not_called()
         assert isinstance(result, StartedLlmStage)
