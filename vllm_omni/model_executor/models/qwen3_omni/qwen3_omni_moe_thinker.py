@@ -132,9 +132,7 @@ logger = init_logger(__name__)
 # entire thinker — audio tower, visual encoder, and language model
 # all share the same quant method.  Dynamic quantization methods
 # (e.g. --quantization fp8) should only target the language model.
-PRE_QUANTIZED_METHODS: frozenset[str] = frozenset(
-    {"modelopt", "modelopt_fp4", "modelopt_mxfp8"}
-)
+PRE_QUANTIZED_METHODS: frozenset[str] = frozenset({"modelopt", "modelopt_fp4", "modelopt_mxfp8"})
 
 
 class Qwen3Omni_VisionTransformer(_Qwen3Omni_VisionTransformer):
