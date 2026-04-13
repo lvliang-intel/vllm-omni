@@ -110,9 +110,12 @@ class Qwen3OmniMoeTalkerForConditionalGeneration(
         # rope_parameters dict (e.g. config.text_config.rope_parameters =
         # {"rope_theta": 1000000.0, "rope_type": "default"}).
         # Use setdefault so we never overwrite a value already present.
+        # Precedence: rope_params["rope_theta"] (already set)
+        #           > text_config.rope_theta (transformers <5.0.0 top-level attr)
+        #           > 1000000 (Qwen3 Omni default)
         rope_params.setdefault(
             "rope_theta",
-            getattr(talker_config.text_config, "rope_theta", rope_params.get("rope_theta", 1000000)),
+            getattr(talker_config.text_config, "rope_theta", 1000000),
         )
         talker_config.text_config.rope_parameters = rope_params
         quant_config = vllm_config.quant_config
