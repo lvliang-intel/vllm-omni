@@ -40,7 +40,7 @@ from vllm_omni.platforms import current_omni_platform
 logger = init_logger(__name__)
 
 
-def create_vace_transformer_from_config(config: dict) -> WanVACETransformer3DModel:
+def create_vace_transformer_from_config(config: dict, quant_config=None, prefix: str = "") -> WanVACETransformer3DModel:
     """Create WanVACETransformer3DModel from config dict."""
     kwargs = {}
     if "patch_size" in config:
@@ -77,6 +77,11 @@ def create_vace_transformer_from_config(config: dict) -> WanVACETransformer3DMod
         kwargs["vace_layers"] = config["vace_layers"]
     if "vace_in_channels" in config:
         kwargs["vace_in_channels"] = config["vace_in_channels"]
+
+    if quant_config is not None:
+        kwargs["quant_config"] = quant_config
+    if prefix:
+        kwargs["prefix"] = prefix
 
     return WanVACETransformer3DModel(**kwargs)
 
@@ -174,7 +179,9 @@ class Wan22VACEPipeline(Wan22Pipeline, SupportImageInput):
 
     def _create_transformer(self, config: dict) -> WanVACETransformer3DModel:
         """Build VACE transformer directly from config dict."""
-        return create_vace_transformer_from_config(config)
+        return create_vace_transformer_from_config(
+            config, quant_config=self.od_config.quantization_config,
+        )
 
     def check_inputs(
         self,

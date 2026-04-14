@@ -114,7 +114,7 @@ def load_transformer_config(model_path: str, subfolder: str = "transformer", loc
     return {}
 
 
-def create_transformer_from_config(config: dict) -> WanTransformer3DModel:
+def create_transformer_from_config(config: dict, quant_config=None, prefix: str = "") -> WanTransformer3DModel:
     """Create WanTransformer3DModel from config dict."""
     kwargs = {}
 
@@ -148,6 +148,11 @@ def create_transformer_from_config(config: dict) -> WanTransformer3DModel:
         kwargs["rope_max_seq_len"] = config["rope_max_seq_len"]
     if "pos_embed_seq_len" in config:
         kwargs["pos_embed_seq_len"] = config["pos_embed_seq_len"]
+
+    if quant_config is not None:
+        kwargs["quant_config"] = quant_config
+    if prefix:
+        kwargs["prefix"] = prefix
 
     return WanTransformer3DModel(**kwargs)
 
@@ -355,7 +360,9 @@ class Wan22Pipeline(nn.Module, CFGParallelMixin, ProgressBarMixin, DiffusionPipe
 
     def _create_transformer(self, config: dict) -> WanTransformer3DModel:
         """Create a transformer from a config dict. Subclasses may override."""
-        return create_transformer_from_config(config)
+        return create_transformer_from_config(
+            config, quant_config=self.od_config.quantization_config,
+        )
 
     @property
     def guidance_scale(self):
