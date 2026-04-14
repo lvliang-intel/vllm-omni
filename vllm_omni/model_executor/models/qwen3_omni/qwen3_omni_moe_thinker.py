@@ -131,6 +131,7 @@ except (ImportError, ModuleNotFoundError):
 
 logger = init_logger(__name__)
 
+
 class Qwen3Omni_VisionTransformer(_Qwen3Omni_VisionTransformer):
     """Subclass that fixes Qwen2_5_VisionAttention.forward() compatibility.
 
