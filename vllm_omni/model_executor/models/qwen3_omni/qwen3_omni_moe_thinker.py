@@ -131,13 +131,6 @@ except (ImportError, ModuleNotFoundError):
 
 logger = init_logger(__name__)
 
-# Pre-quantized checkpoints (modelopt NVFP4/FP8/MXFP8) quantize the
-# entire thinker — audio tower, visual encoder, and language model
-# all share the same quant method.  Dynamic quantization methods
-# (e.g. --quantization fp8) should only target the language model.
-PRE_QUANTIZED_METHODS: frozenset[str] = frozenset({"modelopt", "modelopt_fp4", "modelopt_mxfp8"})
-
-
 class Qwen3Omni_VisionTransformer(_Qwen3Omni_VisionTransformer):
     """Subclass that fixes Qwen2_5_VisionAttention.forward() compatibility.
 
@@ -1123,33 +1116,24 @@ class Qwen3OmniMoeThinkerForConditionalGeneration(
         self.multimodal_config = multimodal_config
         self.quant_config = quant_config
 
-<<<<<<< feats/ar-w4a16-qwen-omni
-=======
         # Pre-quantized checkpoints (modelopt NVFP4/FP8/MXFP8) only quantize
         # the Thinker LM (language model). Vision and audio encoder weights
         # remain in BF16 and have no corresponding scale tensors in the
         # checkpoint. Dynamic quantization methods (e.g. --quantization fp8)
         # should also only target the language model.
 
->>>>>>> main
         if isinstance(quant_config, ComponentQuantizationConfig):
             audio_quant_config = quant_config.resolve("audio_tower")
             visual_quant_config = quant_config.resolve("visual")
             language_quant_config = quant_config.resolve("language_model")
         elif quant_config is not None:
             if quant_config.get_name() in PRE_QUANTIZED_METHODS:
-<<<<<<< feats/ar-w4a16-qwen-omni
-                # Pre-quantized: pass quant_config to all subcomponents.
-                audio_quant_config = quant_config
-                visual_quant_config = quant_config
-=======
                 # Pre-quantized: only the Thinker LM is quantized.
                 # Vision/audio encoder weights are BF16 with no FP8 scales;
                 # passing quant_config to them causes FP8 kernels to run on
                 # BF16 weights (producing garbage embeddings). Keep None.
                 audio_quant_config = None
                 visual_quant_config = None
->>>>>>> main
                 language_quant_config = quant_config
             else:
                 # Dynamic quantization: scope to language_model only.
