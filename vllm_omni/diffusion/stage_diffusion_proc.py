@@ -67,8 +67,52 @@ class StageDiffusionProc:
         logger.info("StageDiffusionProc initialized with model: %s", self._model)
 
     def _enrich_config(self) -> None:
+<<<<<<< HEAD
         """Load model metadata from HuggingFace and populate od_config fields."""
         self._od_config.enrich_config()
+=======
+        """Load model metadata from HuggingFace and populate od_config fields.
+
+        Diffusers-style models expose ``model_index.json`` with ``_class_name``.
+        Non-diffusers models (e.g. Bagel, NextStep) only have ``config.json``,
+        so we fall back to reading that and mapping model_type manually.
+        """
+        od_config = self._od_config
+
+        try:
+            config_dict = get_hf_file_to_dict("model_index.json", od_config.model)
+            if config_dict is not None:
+                if od_config.model_class_name is None:
+                    od_config.model_class_name = config_dict.get("_class_name", None)
+                od_config.update_multimodal_support()
+
+                tf_config_dict = get_hf_file_to_dict("transformer/config.json", od_config.model)
+                od_config.set_tf_model_config(TransformerConfig.from_dict(tf_config_dict))
+            else:
+                raise FileNotFoundError("model_index.json not found")
+        except (AttributeError, OSError, ValueError, FileNotFoundError):
+            cfg = get_hf_file_to_dict("config.json", od_config.model)
+            if cfg is None:
+                raise ValueError(f"Could not find config.json or model_index.json for model {od_config.model}")
+
+            od_config.set_tf_model_config(TransformerConfig.from_dict(cfg))
+            model_type = cfg.get("model_type")
+            architectures = cfg.get("architectures") or []
+
+            if model_type == "bagel" or "BagelForConditionalGeneration" in architectures:
+                od_config.model_class_name = "BagelPipeline"
+                od_config.tf_model_config = TransformerConfig()
+                od_config.update_multimodal_support()
+            elif model_type == "nextstep":
+                if od_config.model_class_name is None:
+                    od_config.model_class_name = "NextStep11Pipeline"
+                od_config.tf_model_config = TransformerConfig()
+                od_config.update_multimodal_support()
+            elif architectures and len(architectures) == 1:
+                od_config.model_class_name = architectures[0]
+            else:
+                raise
+>>>>>>> e33fa8e7 (support autoround w4a16 for wan2.2)
 
     # ------------------------------------------------------------------
     # Request processing
