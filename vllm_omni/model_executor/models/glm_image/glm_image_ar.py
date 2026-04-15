@@ -67,6 +67,7 @@ from vllm.model_executor.models.interfaces import (
 )
 from vllm.model_executor.models.qwen2 import Qwen2MLP as GlmImageTextMLP
 from vllm.model_executor.models.utils import (
+    AutoWeightsLoader,
     WeightsMapper,
     make_empty_intermediate_tensors_factory,
     make_layers,
@@ -2044,6 +2045,47 @@ class GlmImageTextModel(nn.Module):
         hidden_states = self.norm(hidden_states)
         return hidden_states
 
+    def load_weights(self, weights: Iterable[tuple[str, torch.Tensor]]) -> set[str]:
+        stacked_params_mapping = [
+            # (param_name, shard_name, shard_id)
+            ("qkv_proj", "q_proj", "q"),
+            ("qkv_proj", "k_proj", "k"),
+            ("qkv_proj", "v_proj", "v"),
+            ("gate_up_proj", "gate_proj", 0),
+            ("gate_up_proj", "up_proj", 1),
+        ]
+
+        params_dict = dict(self.named_parameters(remove_duplicate=False))
+        loaded_params: set[str] = set()
+
+        for name, loaded_weight in weights:
+            if "rotary_emb.inv_freq" in name:
+                continue
+
+            is_stacked = False
+            for param_name, weight_name, shard_id in stacked_params_mapping:
+                if weight_name not in name:
+                    continue
+                stacked_name = name.replace(weight_name, param_name)
+                if stacked_name not in params_dict:
+                    break
+                param = params_dict[stacked_name]
+                weight_loader = getattr(param, "weight_loader", default_weight_loader)
+                weight_loader(param, loaded_weight, shard_id)
+                loaded_params.add(stacked_name)
+                is_stacked = True
+                break
+
+            if not is_stacked:
+                if name not in params_dict:
+                    continue
+                param = params_dict[name]
+                weight_loader = getattr(param, "weight_loader", default_weight_loader)
+                weight_loader(param, loaded_weight)
+                loaded_params.add(name)
+
+        return loaded_params
+
 
 class GlmImageModel(nn.Module):
     """
@@ -3040,41 +3082,5 @@ class GlmImageForConditionalGeneration(nn.Module, SupportsMultiModal, SupportsPP
         - Text model weights
         - LM head weights
         """
-        stacked_params_mapping = [
-            # (param_name, shard_name, shard_id)
-            ("qkv_proj", "q_proj", "q"),
-            ("qkv_proj", "k_proj", "k"),
-            ("qkv_proj", "v_proj", "v"),
-            ("gate_up_proj", "gate_proj", 0),
-            ("gate_up_proj", "up_proj", 1),
-        ]
-
-        params_dict = dict(self.named_parameters(remove_duplicate=False))
-        loaded_params: set[str] = set()
-
-        for name, loaded_weight in weights:
-            # Handle stacked parameters (QKV, gate_up)
-            is_stacked = False
-            for param_name, weight_name, shard_id in stacked_params_mapping:
-                if weight_name not in name:
-                    continue
-                stacked_name = name.replace(weight_name, param_name)
-                if stacked_name not in params_dict:
-                    break
-                param = params_dict[stacked_name]
-                weight_loader = getattr(param, "weight_loader", default_weight_loader)
-                weight_loader(param, loaded_weight, shard_id)
-                loaded_params.add(stacked_name)
-                is_stacked = True
-                break
-
-            if not is_stacked:
-                # Regular weight loading
-                if name not in params_dict:
-                    continue
-                param = params_dict[name]
-                weight_loader = getattr(param, "weight_loader", default_weight_loader)
-                weight_loader(param, loaded_weight)
-                loaded_params.add(name)
-
-        return loaded_params
+        loader = AutoWeightsLoader(self)
+        return loader.load_weights(weights, mapper=self.hf_to_vllm_mapper)
