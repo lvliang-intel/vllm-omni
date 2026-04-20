@@ -716,7 +716,7 @@ class OmniDiffusionConfig:
                     self.tf_model_config = TransformerConfig()
                 else:
                     tf_config_dict = get_hf_file_to_dict("transformer/config.json", self.model)
-                    self.tf_model_config = TransformerConfig.from_dict(tf_config_dict)
+                    self.set_tf_model_config(TransformerConfig.from_dict(tf_config_dict))
             else:
                 raise FileNotFoundError("model_index.json not found")
         except (AttributeError, OSError, ValueError, FileNotFoundError):
@@ -729,7 +729,7 @@ class OmniDiffusionConfig:
                 if cfg is None:
                     raise ValueError(f"Could not find config.json or model_index.json for model {self.model}")
 
-                self.tf_model_config = TransformerConfig.from_dict(cfg)
+                self.set_tf_model_config(TransformerConfig.from_dict(cfg))
                 model_type = cfg.get("model_type")
                 architectures = cfg.get("architectures") or []
 
