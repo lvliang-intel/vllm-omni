@@ -14,13 +14,13 @@ import os
 
 import pytest
 
+from tests.helpers.mark import hardware_test
 from tests.helpers.media import (
     generate_synthetic_audio,
     generate_synthetic_image,
     generate_synthetic_video,
 )
-from tests.helpers.stage_config import modify_stage_config
-from tests.utils import get_deploy_config_path, hardware_test
+from tests.helpers.stage_config import get_deploy_config_path, modify_stage_config
 
 QUANTIZED_MODEL = "Intel/Qwen3-Omni-30B-A3B-Instruct-int4-AutoRound"
 BASELINE_MODEL = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
