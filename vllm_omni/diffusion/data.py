@@ -716,7 +716,7 @@ class OmniDiffusionConfig:
                     self.tf_model_config = TransformerConfig()
                 else:
                     tf_config_dict = get_hf_file_to_dict("transformer/config.json", self.model)
-                    self.tf_model_config = TransformerConfig.from_dict(tf_config_dict)
+                    self.set_tf_model_config(TransformerConfig.from_dict(tf_config_dict))
             else:
                 raise FileNotFoundError("model_index.json not found")
         except (AttributeError, OSError, ValueError, FileNotFoundError):

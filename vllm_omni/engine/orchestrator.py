@@ -327,6 +327,8 @@ class Orchestrator:
                 except asyncio.CancelledError:
                     raise
                 except EngineDeadError as e:
+                    if self._shutdown_event.is_set():
+                        return
                     logger.error(
                         "[Orchestrator] Stage-%s is dead: %s",
                         stage_id,
