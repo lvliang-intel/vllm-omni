@@ -273,4 +273,3 @@ def test_glm_image_autoround_w4a16_image_to_image():
 
     gc.collect()
     current_omni_platform.empty_cache()
-
