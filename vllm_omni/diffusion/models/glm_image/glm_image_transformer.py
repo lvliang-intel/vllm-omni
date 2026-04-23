@@ -782,7 +782,8 @@ class GlmImageFeedForward(nn.Module):
             approximate = "tanh" if activation_fn == "gelu-approximate" else "none"
             layers = [
                 ColumnParallelGELU(
-                    dim, inner_dim, approximate=approximate, bias=bias, quant_config=quant_config, prefix=f"{prefix}.net.0"
+                    dim, inner_dim, approximate=approximate, bias=bias,
+                    quant_config=quant_config, prefix=f"{prefix}.net.0"
                 ),
                 nn.Identity(),
                 RowParallelLinear(
