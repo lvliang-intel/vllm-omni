@@ -14,13 +14,13 @@ import os
 
 import pytest
 from PIL import Image
+from vllm import SamplingParams
 
 from tests.helpers.env import DeviceMemoryMonitor
 from tests.helpers.mark import hardware_test
 from tests.helpers.media import generate_synthetic_image
 from tests.helpers.runtime import OmniRunner
 from tests.helpers.stage_config import get_deploy_config_path, modify_stage_config
-from vllm import SamplingParams
 from vllm_omni.inputs.data import OmniDiffusionSamplingParams
 from vllm_omni.outputs import OmniRequestOutput
 from vllm_omni.platforms import current_omni_platform
@@ -223,10 +223,7 @@ def test_glm_image_autoround_w4a16_image_to_image():
 
     gc.collect()
     current_omni_platform.empty_cache()
-    device_index = current_omni_platform.current_device()
     current_omni_platform.reset_peak_memory_stats()
-    monitor = DeviceMemoryMonitor(device_index=device_index, interval=0.02)
-    monitor.start()
 
     with OmniRunner(QUANTIZED_MODEL, seed=42, stage_configs_path=stage_config) as runner:
         current_omni_platform.reset_peak_memory_stats()
@@ -261,9 +258,6 @@ def test_glm_image_autoround_w4a16_image_to_image():
             py_generator=True,
         )
         outputs = list(outputs)
-
-    peak = monitor.peak_used_mb
-    monitor.stop()
 
     first_output = outputs[0]
     assert first_output.final_output_type == "image"
