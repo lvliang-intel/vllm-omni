@@ -782,8 +782,12 @@ class GlmImageFeedForward(nn.Module):
             approximate = "tanh" if activation_fn == "gelu-approximate" else "none"
             layers = [
                 ColumnParallelGELU(
-                    dim, inner_dim, approximate=approximate, bias=bias,
-                    quant_config=quant_config, prefix=f"{prefix}.net.0"
+                    dim,
+                    inner_dim,
+                    approximate=approximate,
+                    bias=bias,
+                    quant_config=quant_config,
+                    prefix=f"{prefix}.net.0",
                 ),
                 nn.Identity(),
                 RowParallelLinear(
@@ -827,9 +831,7 @@ class GlmImageTransformerBlock(nn.Module):
         super().__init__()
 
         # 1. Attention with AdaLN
-        self.norm1 = GlmImageAdaLayerNormZero(
-            time_embed_dim, dim, quant_config=quant_config, prefix=f"{prefix}.norm1"
-        )
+        self.norm1 = GlmImageAdaLayerNormZero(time_embed_dim, dim, quant_config=quant_config, prefix=f"{prefix}.norm1")
         self.attn1 = GlmImageAttention(
             dim=dim,
             num_heads=num_attention_heads,
