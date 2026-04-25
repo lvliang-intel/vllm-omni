@@ -6,26 +6,27 @@ These tests verify that the GLM-Image DiT transformer correctly accepts and uses
 quantization configs for W4A16/AutoRound quantization support.
 """
 
+from unittest.mock import MagicMock
+
 import pytest
 import torch
 from pytest_mock import MockerFixture
-from unittest.mock import MagicMock
 
 from vllm_omni.diffusion.data import DiffusionParallelConfig
 from vllm_omni.diffusion.models.glm_image.glm_image_transformer import (
-    GlmImageTransformer2DModel,
-    GlmImageTransformerBlock,
-    GlmImageAttention,
-    GlmImageAdaLayerNormZero,
-    GlmImageAdaLayerNormContinuous,
-    GlmImageFeedForward,
     ColumnParallelGELU,
     ColumnParallelSiLU,
-    GlmImagePrepare,
+    GlmImageAdaLayerNormContinuous,
+    GlmImageAdaLayerNormZero,
+    GlmImageAttention,
+    GlmImageFeedForward,
     GlmImageImageProjector,
+    GlmImagePrepare,
     GlmImageRotaryPosEmbed,
-    validate_glm_image_tp_constraints,
+    GlmImageTransformer2DModel,
+    GlmImageTransformerBlock,
     _positive_divisors,
+    validate_glm_image_tp_constraints,
 )
 from vllm_omni.model_executor.models.glm_image.pipeline import GLM_IMAGE_PIPELINE
 
