@@ -132,6 +132,64 @@ except (ImportError, ModuleNotFoundError):
 logger = init_logger(__name__)
 
 
+# Multimodal token attributes that Qwen3OmniMoeProcessor.__init__ reads
+# from the tokenizer.  Qwen2TokenizerFast (transformers <=4.57.x) does not
+# carry these attributes, causing AttributeError during construction.
+_QWEN3_OMNI_TOKEN_ATTR_DEFAULTS: dict[str, str] = {
+    "audio_token": "<|audio_pad|>",
+    "image_token": "<|image_pad|>",
+    "video_token": "<|video_pad|>",
+    "vision_bos_token": "<|vision_start|>",
+    "vision_eos_token": "<|vision_end|>",
+    "audio_bos_token": "<|audio_start|>",
+    "audio_eos_token": "<|audio_end|>",
+}
+
+
+def _ensure_tokenizer_mm_tokens(tokenizer: object) -> None:
+    """Patch missing multimodal token attributes onto a tokenizer.
+
+    Only sets attributes that are absent, preserving any values already
+    defined by the tokenizer (e.g. from ``tokenizer_config.json``).
+    """
+    for attr, default in _QWEN3_OMNI_TOKEN_ATTR_DEFAULTS.items():
+        if not hasattr(tokenizer, attr):
+            setattr(tokenizer, attr, default)
+
+
+class Qwen3OmniMoeProcessorCompat(Qwen3OmniMoeProcessor):
+    """Drop-in replacement that patches tokenizer before parent __init__.
+
+    ``Qwen3OmniMoeProcessor.__init__`` unconditionally reads 7 multimodal
+    token attributes from ``self.tokenizer``.  When the tokenizer is a
+    ``Qwen2TokenizerFast`` (transformers <=4.57.x) these attributes are
+    missing and construction crashes with ``AttributeError``.
+
+    This subclass intercepts the tokenizer argument, ensures the
+    attributes exist, and then delegates to the original constructor.
+    """
+
+    def __init__(
+        self,
+        image_processor=None,
+        video_processor=None,
+        feature_extractor=None,
+        tokenizer=None,
+        chat_template=None,
+        **kwargs,
+    ):
+        if tokenizer is not None:
+            _ensure_tokenizer_mm_tokens(tokenizer)
+        super().__init__(
+            image_processor=image_processor,
+            video_processor=video_processor,
+            feature_extractor=feature_extractor,
+            tokenizer=tokenizer,
+            chat_template=chat_template,
+            **kwargs,
+        )
+
+
 class Qwen3Omni_VisionTransformer(_Qwen3Omni_VisionTransformer):
     """Subclass that fixes Qwen2_5_VisionAttention.forward() compatibility.
 
@@ -587,18 +645,11 @@ class Qwen3OmniMoeThinkerProcessingInfo(Qwen2AudioProcessingInfo, Qwen2_5_VLProc
         return self.ctx.get_hf_config(Qwen3OmniMoeConfig).thinker_config
 
     def get_hf_processor(self, **kwargs: object) -> Qwen3OmniMoeProcessor:
-        processor = self.ctx.get_hf_processor(
-            Qwen3OmniMoeProcessor,
+        return self.ctx.get_hf_processor(
+            Qwen3OmniMoeProcessorCompat,
             use_fast=kwargs.pop("use_fast", True),
             **kwargs,
         )
-        if not hasattr(processor, "audio_token"):
-            processor.audio_token = "<|audio_pad|>"
-        if not hasattr(processor, "image_token"):
-            processor.image_token = "<|image_pad|>"
-        if not hasattr(processor, "video_token"):
-            processor.video_token = "<|video_pad|>"
-        return processor
 
     def get_feature_extractor(self, **kwargs: object):
         hf_processor = self.get_hf_processor(**kwargs)
@@ -1575,7 +1626,7 @@ class Qwen3OmniMoeThinkerForConditionalGeneration(
 
     @classmethod
     def get_speech_to_text_config(cls, model_config: ModelConfig, task_type: str) -> SpeechToTextConfig:
-        processor = cached_processor_from_config(model_config, processor_cls=Qwen3OmniMoeProcessor)
+        processor = cached_processor_from_config(model_config, processor_cls=Qwen3OmniMoeProcessorCompat)
         return SpeechToTextConfig(
             max_audio_clip_s=processor.feature_extractor.chunk_length,
             sample_rate=processor.feature_extractor.sampling_rate,
@@ -1622,7 +1673,7 @@ class Qwen3OmniMoeThinkerForConditionalGeneration(
         if request_prompt:
             instruction += f" {request_prompt}"
 
-        processor = cached_processor_from_config(model_config, processor_cls=Qwen3OmniMoeProcessor)
+        processor = cached_processor_from_config(model_config, processor_cls=Qwen3OmniMoeProcessorCompat)
         # Audio placeholder format: <|audio_start|><|audio_pad|><|audio_end|>
         audio_placeholder = "<|audio_start|><|audio_pad|><|audio_end|>"
         user_content = f"{audio_placeholder}{instruction}"

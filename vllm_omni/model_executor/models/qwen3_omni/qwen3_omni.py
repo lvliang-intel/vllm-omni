@@ -21,7 +21,12 @@ from vllm.config import ModelConfig, VllmConfig
 from vllm.inputs import PromptType, TokensPrompt
 from vllm.logger import init_logger
 from vllm.model_executor.layers.rotary_embedding import MRotaryEmbedding
-from vllm.model_executor.models.interfaces import SupportsMRoPE, SupportsMultiModal, SupportsPP, SupportsRealtime
+from vllm.model_executor.models.interfaces import (
+    SupportsMRoPE,
+    SupportsMultiModal,
+    SupportsPP,
+    SupportsRealtime,
+)
 from vllm.model_executor.models.qwen3_asr_realtime import Qwen3ASRRealtimeBuffer
 from vllm.model_executor.models.qwen3_omni_moe_thinker import (
     Qwen3OmniMoeConditionalGenerationMixin,
@@ -36,16 +41,26 @@ from vllm.v1.outputs import SamplerOutput
 from vllm.v1.sample.metadata import SamplingMetadata
 from vllm.v1.sample.sampler import Sampler
 
-from vllm_omni.data_entry_keys import Embeddings, HiddenStates, Ids, OmniPayload, OmniPayloadMeta
+from vllm_omni.data_entry_keys import (
+    Embeddings,
+    HiddenStates,
+    Ids,
+    OmniPayload,
+    OmniPayloadMeta,
+)
 from vllm_omni.model_executor.custom_process_mixin import CustomProcessMixin
 from vllm_omni.model_executor.models.output_templates import OmniOutput
 from vllm_omni.model_executor.models.qwen3_omni.qwen3_omni_moe_thinker import (
+    Qwen3OmniMoeProcessorCompat,
     Qwen3OmniMoeThinkerDummyInputsBuilder,
     Qwen3OmniMoeThinkerForConditionalGeneration,
     Qwen3OmniMoeThinkerMultiModalProcessor,
     Qwen3OmniMoeThinkerProcessingInfo,
 )
-from vllm_omni.model_executor.models.utils import add_prefix_to_loaded_weights, safe_tensor_reshape
+from vllm_omni.model_executor.models.utils import (
+    add_prefix_to_loaded_weights,
+    safe_tensor_reshape,
+)
 
 # Special token IDs for Qwen3 Omni MoE
 # Reference: https://huggingface.co/Qwen/Qwen3-Omni-30B-A3B-Instruct/blob/main/tokenizer_config.json
@@ -219,7 +234,7 @@ class Qwen3OmniMoeForConditionalGeneration(
         input_stream: asyncio.Queue[list[int]],
         model_config: ModelConfig,
     ) -> AsyncGenerator[PromptType, None]:
-        processor = cached_processor_from_config(model_config)
+        processor = cached_processor_from_config(model_config, processor_cls=Qwen3OmniMoeProcessorCompat)
         feature_extractor = processor.feature_extractor
         sampling_rate = feature_extractor.sampling_rate
         tokenizer = cached_tokenizer_from_config(model_config)
