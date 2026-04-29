@@ -1,11 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
+import pytest
+
 from vllm_omni.model_executor.models.qwen3_omni.qwen3_omni_moe_thinker import (
     _QWEN3_OMNI_TOKEN_ATTR_DEFAULTS,
     Qwen3OmniMoeProcessorCompat,
     _ensure_tokenizer_mm_tokens,
 )
+
+pytestmark = [pytest.mark.core_model, pytest.mark.cpu]
 
 
 class _FakeTokenizer:
