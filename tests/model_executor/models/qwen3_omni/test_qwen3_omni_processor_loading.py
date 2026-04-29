@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: Copyright contributors to the vLLM project
+
 from vllm_omni.model_executor.models.qwen3_omni.qwen3_omni_moe_thinker import (
     _QWEN3_OMNI_TOKEN_ATTR_DEFAULTS,
     Qwen3OmniMoeProcessorCompat,
@@ -64,9 +67,15 @@ def test_compat_processor_patches_tokenizer_before_parent_init(monkeypatch):
     """Tokenizer should have all attrs by the time parent __init__ reads them."""
     captured_attrs = {}
 
-    def fake_parent_init(self, image_processor=None, video_processor=None,
-                         feature_extractor=None, tokenizer=None,
-                         chat_template=None, **kw):
+    def fake_parent_init(
+        self,
+        image_processor=None,
+        video_processor=None,
+        feature_extractor=None,
+        tokenizer=None,
+        chat_template=None,
+        **kw,
+    ):
         # Capture what the tokenizer looks like at parent __init__ time
         for attr in _QWEN3_OMNI_TOKEN_ATTR_DEFAULTS:
             captured_attrs[attr] = getattr(tokenizer, attr, "MISSING")
@@ -74,35 +83,43 @@ def test_compat_processor_patches_tokenizer_before_parent_init(monkeypatch):
     from transformers.models.qwen3_omni_moe.processing_qwen3_omni_moe import (
         Qwen3OmniMoeProcessor,
     )
+
     monkeypatch.setattr(Qwen3OmniMoeProcessor, "__init__", fake_parent_init)
 
     tok = _FakeTokenizer()
     Qwen3OmniMoeProcessorCompat(tokenizer=tok)
 
     for attr, expected in _QWEN3_OMNI_TOKEN_ATTR_DEFAULTS.items():
-        assert captured_attrs[attr] == expected, (
-            f"{attr} was {captured_attrs[attr]!r} at parent __init__ time"
-        )
+        assert captured_attrs[attr] == expected, f"{attr} was {captured_attrs[attr]!r} at parent __init__ time"
 
 
 def test_compat_processor_passes_all_args_through(monkeypatch):
     """All constructor args must reach the parent __init__."""
     received = {}
 
-    def fake_parent_init(self, image_processor=None, video_processor=None,
-                         feature_extractor=None, tokenizer=None,
-                         chat_template=None, **kw):
-        received.update(dict(
-            image_processor=image_processor,
-            video_processor=video_processor,
-            feature_extractor=feature_extractor,
-            tokenizer=tokenizer,
-            chat_template=chat_template,
-        ))
+    def fake_parent_init(
+        self,
+        image_processor=None,
+        video_processor=None,
+        feature_extractor=None,
+        tokenizer=None,
+        chat_template=None,
+        **kw,
+    ):
+        received.update(
+            dict(
+                image_processor=image_processor,
+                video_processor=video_processor,
+                feature_extractor=feature_extractor,
+                tokenizer=tokenizer,
+                chat_template=chat_template,
+            )
+        )
 
     from transformers.models.qwen3_omni_moe.processing_qwen3_omni_moe import (
         Qwen3OmniMoeProcessor,
     )
+
     monkeypatch.setattr(Qwen3OmniMoeProcessor, "__init__", fake_parent_init)
 
     tok = _FakeTokenizer()
