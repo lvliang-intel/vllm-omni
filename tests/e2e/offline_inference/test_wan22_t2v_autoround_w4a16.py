@@ -39,9 +39,7 @@ NUM_FRAMES = 5  # must satisfy num_frames % 4 == 1 for Wan2.2
 NUM_STEPS = 2  # minimal for smoke-test
 
 
-def _generate_video(
-    model_name: str, **extra_kwargs
-) -> tuple[object, float]:
+def _generate_video(model_name: str, **extra_kwargs) -> tuple[object, float]:
     """Load a Wan2.2 T2V model, generate one video, return (frames, peak_memory_mb)."""
     gc.collect()
     current_omni_platform.empty_cache()
@@ -66,9 +64,7 @@ def _generate_video(
                 num_frames=NUM_FRAMES,
                 num_inference_steps=NUM_STEPS,
                 guidance_scale=1.0,
-                generator=torch.Generator(
-                    device=current_omni_platform.device_type
-                ).manual_seed(42),
+                generator=torch.Generator(device=current_omni_platform.device_type).manual_seed(42),
             ),
         )
 
@@ -101,15 +97,9 @@ def test_wan22_t2v_autoround_w4a16_generates_video():
     assert hasattr(frames, "shape"), "Expected frames to have a shape attribute"
 
     # frames shape: (batch, num_frames, height, width, channels)
-    assert frames.shape[1] == NUM_FRAMES, (
-        f"Expected {NUM_FRAMES} frames, got {frames.shape[1]}"
-    )
-    assert frames.shape[2] == HEIGHT, (
-        f"Expected height {HEIGHT}, got {frames.shape[2]}"
-    )
-    assert frames.shape[3] == WIDTH, (
-        f"Expected width {WIDTH}, got {frames.shape[3]}"
-    )
+    assert frames.shape[1] == NUM_FRAMES, f"Expected {NUM_FRAMES} frames, got {frames.shape[1]}"
+    assert frames.shape[2] == HEIGHT, f"Expected height {HEIGHT}, got {frames.shape[2]}"
+    assert frames.shape[3] == WIDTH, f"Expected width {WIDTH}, got {frames.shape[3]}"
 
     # Sanity: video should not be blank (frames are [0, 1] floats)
     arr = np.asarray(frames)
