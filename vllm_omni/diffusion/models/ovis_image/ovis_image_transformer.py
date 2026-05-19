@@ -16,14 +16,13 @@
 # limitations under the License.
 
 from collections.abc import Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 import torch.nn as nn
-from diffusers.models.attention import FeedForward
 from diffusers.models.embeddings import TimestepEmbedding, Timesteps, get_1d_rotary_pos_embed
 from diffusers.models.modeling_outputs import Transformer2DModelOutput
-from diffusers.models.normalization import AdaLayerNormContinuous, AdaLayerNormZero, AdaLayerNormZeroSingle
+from diffusers.models.normalization import AdaLayerNormContinuous
 from diffusers.utils import is_torch_npu_available
 from vllm.logger import init_logger
 from vllm.model_executor.layers.layernorm import RMSNorm
@@ -34,7 +33,142 @@ from vllm_omni.diffusion.attention.layer import Attention
 from vllm_omni.diffusion.data import OmniDiffusionConfig
 from vllm_omni.diffusion.layers.rope import RotaryEmbedding
 
+if TYPE_CHECKING:
+    from vllm.model_executor.layers.quantization.base_config import QuantizationConfig
+
 logger = init_logger(__name__)
+
+
+def _apply_replicated_linear(module: ReplicatedLinear, x: torch.Tensor) -> torch.Tensor:
+    out = module(x)
+    if out.ndim != x.ndim:
+        out = out.reshape(*x.shape[:-1], -1)
+    return out
+
+
+class OvisImageAdaLayerNormZero(nn.Module):
+    """Adaptive LayerNorm with zero initialization (replaces diffusers AdaLayerNormZero with quant support)."""
+
+    def __init__(
+        self,
+        embedding_dim: int,
+        quant_config: "QuantizationConfig | None" = None,
+        prefix: str = "",
+    ) -> None:
+        super().__init__()
+        self.silu = nn.SiLU()
+        self.linear = ReplicatedLinear(
+            embedding_dim,
+            6 * embedding_dim,
+            bias=True,
+            return_bias=False,
+            quant_config=quant_config,
+            prefix=f"{prefix}.linear",
+        )
+        self.norm = nn.LayerNorm(embedding_dim, elementwise_affine=False, eps=1e-6)
+
+    def forward(
+        self, x: torch.Tensor, emb: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        emb = _apply_replicated_linear(self.linear, self.silu(emb).to(x.dtype))
+        shift_msa, scale_msa, gate_msa, shift_mlp, scale_mlp, gate_mlp = emb.chunk(6, dim=-1)
+        x = self.norm(x) * (1 + scale_msa[:, None]) + shift_msa[:, None]
+        return x, gate_msa, shift_mlp, scale_mlp, gate_mlp
+
+
+class OvisImageAdaLayerNormZeroSingle(nn.Module):
+    """Adaptive LayerNorm for single stream (replaces diffusers AdaLayerNormZeroSingle with quant support)."""
+
+    def __init__(
+        self,
+        embedding_dim: int,
+        quant_config: "QuantizationConfig | None" = None,
+        prefix: str = "",
+    ) -> None:
+        super().__init__()
+        self.silu = nn.SiLU()
+        self.linear = ReplicatedLinear(
+            embedding_dim,
+            3 * embedding_dim,
+            bias=True,
+            return_bias=False,
+            quant_config=quant_config,
+            prefix=f"{prefix}.linear",
+        )
+        self.norm = nn.LayerNorm(embedding_dim, elementwise_affine=False, eps=1e-6)
+
+    def forward(self, x: torch.Tensor, emb: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        emb = _apply_replicated_linear(self.linear, self.silu(emb).to(x.dtype))
+        shift_msa, scale_msa, gate_msa = emb.chunk(3, dim=-1)
+        x = self.norm(x) * (1 + scale_msa)[:, None, :] + shift_msa[:, None, :]
+        return x, gate_msa
+
+
+class OvisImageSwiGLU(nn.Module):
+    """SwiGLU activation with quantization support (replaces diffusers SwiGLU)."""
+
+    def __init__(
+        self,
+        in_features: int,
+        hidden_features: int,
+        bias: bool = True,
+        quant_config: "QuantizationConfig | None" = None,
+        prefix: str = "",
+    ) -> None:
+        super().__init__()
+        self.proj = ReplicatedLinear(
+            in_features,
+            hidden_features * 2,
+            bias=bias,
+            return_bias=False,
+            quant_config=quant_config,
+            prefix=f"{prefix}.proj",
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x_proj = _apply_replicated_linear(self.proj, x)
+        value, gate = x_proj.chunk(2, dim=-1)
+        return value * torch.nn.functional.silu(gate)
+
+
+class OvisImageFeedForward(nn.Module):
+    """FeedForward with SwiGLU activation and quantization support."""
+
+    def __init__(
+        self,
+        dim: int,
+        dim_out: int | None = None,
+        mult: int = 4,
+        bias: bool = True,
+        quant_config: "QuantizationConfig | None" = None,
+        prefix: str = "",
+    ) -> None:
+        super().__init__()
+        inner_dim = int(dim * mult)
+        dim_out = dim_out or dim
+
+        self.net = nn.ModuleList(
+            [
+                OvisImageSwiGLU(dim, inner_dim, bias=bias, quant_config=quant_config, prefix=f"{prefix}.net.0"),
+                nn.Dropout(0.0),
+                ReplicatedLinear(
+                    inner_dim,
+                    dim_out,
+                    bias=bias,
+                    return_bias=False,
+                    quant_config=quant_config,
+                    prefix=f"{prefix}.net.2",
+                ),
+            ]
+        )
+
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
+        for module in self.net:
+            if isinstance(module, ReplicatedLinear):
+                hidden_states = _apply_replicated_linear(module, hidden_states)
+            else:
+                hidden_states = module(hidden_states)
+        return hidden_states
 
 
 class OvisImageAttention(nn.Module):
@@ -52,6 +186,8 @@ class OvisImageAttention(nn.Module):
         out_dim: int = None,
         context_pre_only: bool | None = None,
         pre_only: bool = False,
+        quant_config: "QuantizationConfig | None" = None,
+        prefix: str = "",
     ):
         super().__init__()
 
@@ -76,11 +212,22 @@ class OvisImageAttention(nn.Module):
             total_num_heads=self.heads,
             disable_tp=True,
             bias=bias,
+            quant_config=quant_config,
+            prefix=f"{prefix}.to_qkv",
         )
 
         if not self.pre_only:
             self.to_out = nn.ModuleList([])
-            self.to_out.append(torch.nn.Linear(self.inner_dim, self.out_dim, bias=out_bias))
+            self.to_out.append(
+                ReplicatedLinear(
+                    self.inner_dim,
+                    self.out_dim,
+                    bias=out_bias,
+                    return_bias=False,
+                    quant_config=quant_config,
+                    prefix=f"{prefix}.to_out.0",
+                )
+            )
             self.to_out.append(nn.Dropout(dropout))
 
         if self.added_kv_proj_dim is not None:
@@ -93,9 +240,18 @@ class OvisImageAttention(nn.Module):
                 total_num_heads=self.heads,
                 disable_tp=True,
                 bias=added_proj_bias,
+                quant_config=quant_config,
+                prefix=f"{prefix}.add_kv_proj",
             )
 
-            self.to_add_out = ReplicatedLinear(self.inner_dim, query_dim, bias=out_bias)
+            self.to_add_out = ReplicatedLinear(
+                self.inner_dim,
+                query_dim,
+                bias=out_bias,
+                return_bias=False,
+                quant_config=quant_config,
+                prefix=f"{prefix}.to_add_out",
+            )
 
         self.rope = RotaryEmbedding(is_neox_style=False)
         self.attn = Attention(
@@ -157,9 +313,9 @@ class OvisImageAttention(nn.Module):
             encoder_hidden_states, hidden_states = hidden_states.split_with_sizes(
                 [encoder_hidden_states.shape[1], hidden_states.shape[1] - encoder_hidden_states.shape[1]], dim=1
             )
-            hidden_states = self.to_out[0](hidden_states)
+            hidden_states = _apply_replicated_linear(self.to_out[0], hidden_states)
             hidden_states = self.to_out[1](hidden_states)
-            encoder_hidden_states, _ = self.to_add_out(encoder_hidden_states)
+            encoder_hidden_states = _apply_replicated_linear(self.to_add_out, encoder_hidden_states)
 
             return hidden_states, encoder_hidden_states
         else:
@@ -167,14 +323,36 @@ class OvisImageAttention(nn.Module):
 
 
 class OvisImageSingleTransformerBlock(nn.Module):
-    def __init__(self, dim: int, num_attention_heads: int, attention_head_dim: int, mlp_ratio: float = 4.0):
+    def __init__(
+        self,
+        dim: int,
+        num_attention_heads: int,
+        attention_head_dim: int,
+        mlp_ratio: float = 4.0,
+        quant_config: "QuantizationConfig | None" = None,
+        prefix: str = "",
+    ):
         super().__init__()
         self.mlp_hidden_dim = int(dim * mlp_ratio)
 
-        self.norm = AdaLayerNormZeroSingle(dim)
-        self.proj_mlp = nn.Linear(dim, self.mlp_hidden_dim * 2)
+        self.norm = OvisImageAdaLayerNormZeroSingle(dim, quant_config=quant_config, prefix=f"{prefix}.norm")
+        self.proj_mlp = ReplicatedLinear(
+            dim,
+            self.mlp_hidden_dim * 2,
+            bias=True,
+            return_bias=False,
+            quant_config=quant_config,
+            prefix=f"{prefix}.proj_mlp",
+        )
         self.act_mlp = nn.SiLU()
-        self.proj_out = nn.Linear(dim + self.mlp_hidden_dim, dim)
+        self.proj_out = ReplicatedLinear(
+            dim + self.mlp_hidden_dim,
+            dim,
+            bias=True,
+            return_bias=False,
+            quant_config=quant_config,
+            prefix=f"{prefix}.proj_out",
+        )
 
         self.attn = OvisImageAttention(
             query_dim=dim,
@@ -184,6 +362,8 @@ class OvisImageSingleTransformerBlock(nn.Module):
             bias=True,
             eps=1e-6,
             pre_only=True,
+            quant_config=quant_config,
+            prefix=f"{prefix}.attn",
         )
 
     def forward(
@@ -200,7 +380,9 @@ class OvisImageSingleTransformerBlock(nn.Module):
         residual = hidden_states
         norm_hidden_states, gate = self.norm(hidden_states, emb=temb)
         mlp_hidden_states, mlp_hidden_gate = torch.split(
-            self.proj_mlp(norm_hidden_states), [self.mlp_hidden_dim, self.mlp_hidden_dim], dim=-1
+            _apply_replicated_linear(self.proj_mlp, norm_hidden_states),
+            [self.mlp_hidden_dim, self.mlp_hidden_dim],
+            dim=-1,
         )
         mlp_hidden_states = self.act_mlp(mlp_hidden_gate) * mlp_hidden_states
         joint_attention_kwargs = joint_attention_kwargs or {}
@@ -212,7 +394,7 @@ class OvisImageSingleTransformerBlock(nn.Module):
 
         hidden_states = torch.cat([attn_output, mlp_hidden_states], dim=2)
         gate = gate.unsqueeze(1)
-        hidden_states = gate * self.proj_out(hidden_states)
+        hidden_states = gate * _apply_replicated_linear(self.proj_out, hidden_states)
         hidden_states = residual + hidden_states
         if hidden_states.dtype == torch.float16:
             hidden_states = hidden_states.clip(-65504, 65504)
@@ -229,11 +411,13 @@ class OvisImageTransformerBlock(nn.Module):
         attention_head_dim: int,
         qk_norm: str = "rms_norm",
         eps: float = 1e-6,
+        quant_config: "QuantizationConfig | None" = None,
+        prefix: str = "",
     ):
         super().__init__()
 
-        self.norm1 = AdaLayerNormZero(dim)
-        self.norm1_context = AdaLayerNormZero(dim)
+        self.norm1 = OvisImageAdaLayerNormZero(dim, quant_config=quant_config, prefix=f"{prefix}.norm1")
+        self.norm1_context = OvisImageAdaLayerNormZero(dim, quant_config=quant_config, prefix=f"{prefix}.norm1_context")
 
         self.attn = OvisImageAttention(
             query_dim=dim,
@@ -244,13 +428,17 @@ class OvisImageTransformerBlock(nn.Module):
             context_pre_only=False,
             bias=True,
             eps=eps,
+            quant_config=quant_config,
+            prefix=f"{prefix}.attn",
         )
 
         self.norm2 = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-        self.ff = FeedForward(dim=dim, dim_out=dim, activation_fn="swiglu")
+        self.ff = OvisImageFeedForward(dim=dim, dim_out=dim, quant_config=quant_config, prefix=f"{prefix}.ff")
 
         self.norm2_context = nn.LayerNorm(dim, elementwise_affine=False, eps=1e-6)
-        self.ff_context = FeedForward(dim=dim, dim_out=dim, activation_fn="swiglu")
+        self.ff_context = OvisImageFeedForward(
+            dim=dim, dim_out=dim, quant_config=quant_config, prefix=f"{prefix}.ff_context"
+        )
 
     def forward(
         self,
@@ -380,6 +568,7 @@ class OvisImageTransformer2DModel(nn.Module):
         num_attention_heads: int = 24,
         joint_attention_dim: int = 2048,
         axes_dims_rope: tuple[int] = (16, 56, 56),
+        quant_config: "QuantizationConfig | None" = None,
     ):
         super().__init__()
         model_config = od_config.tf_model_config
@@ -402,8 +591,10 @@ class OvisImageTransformer2DModel(nn.Module):
                     dim=self.inner_dim,
                     num_attention_heads=num_attention_heads,
                     attention_head_dim=attention_head_dim,
+                    quant_config=quant_config,
+                    prefix=f"transformer_blocks.{i}",
                 )
-                for _ in range(num_layers)
+                for i in range(num_layers)
             ]
         )
 
@@ -413,8 +604,10 @@ class OvisImageTransformer2DModel(nn.Module):
                     dim=self.inner_dim,
                     num_attention_heads=num_attention_heads,
                     attention_head_dim=attention_head_dim,
+                    quant_config=quant_config,
+                    prefix=f"single_transformer_blocks.{i}",
                 )
-                for _ in range(num_single_layers)
+                for i in range(num_single_layers)
             ]
         )
         self.norm_out = AdaLayerNormContinuous(self.inner_dim, self.inner_dim, elementwise_affine=False, eps=1e-6)
@@ -452,13 +645,14 @@ class OvisImageTransformer2DModel(nn.Module):
             `tuple` where the first element is the sample tensor.
         """
 
-        hidden_states = self.x_embedder(hidden_states)
+        dtype = self.x_embedder.weight.dtype
+        hidden_states = self.x_embedder(hidden_states.to(dtype=dtype))
         timestep = timestep.to(device=hidden_states.device, dtype=hidden_states.dtype) * 1000
 
         timesteps_proj = self.time_proj(timestep)
         temb = self.timestep_embedder(timesteps_proj.to(device=hidden_states.device, dtype=hidden_states.dtype))
 
-        encoder_hidden_states = self.context_embedder_norm(encoder_hidden_states)
+        encoder_hidden_states = self.context_embedder_norm(encoder_hidden_states.to(dtype=dtype))
         encoder_hidden_states = self.context_embedder(encoder_hidden_states)
         if txt_ids.ndim == 3:
             logger.warning(
