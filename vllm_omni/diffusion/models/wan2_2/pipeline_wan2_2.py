@@ -37,6 +37,7 @@ from vllm_omni.diffusion.profiler.diffusion_pipeline_profiler import DiffusionPi
 from vllm_omni.diffusion.request import OmniDiffusionRequest
 from vllm_omni.inputs.data import OmniTextPrompt
 from vllm_omni.platforms import current_omni_platform
+from vllm_omni.quantization.factory import build_quant_config, normalize_quant_method_alias
 
 logger = logging.getLogger(__name__)
 DEBUG_PERF = False

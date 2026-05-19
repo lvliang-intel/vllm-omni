@@ -12,9 +12,9 @@ Tests cover:
 
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
 import pytest
+from pytest_mock import MockerFixture
 
 import vllm_omni.diffusion.models.wan2_2.pipeline_wan2_2 as wan22_module
 import vllm_omni.diffusion.models.wan2_2.pipeline_wan2_2_vace as wan22_vace_module
@@ -36,30 +36,30 @@ pytestmark = [pytest.mark.core_model, pytest.mark.cpu, pytest.mark.diffusion]
 class TestCreateTransformerQuant:
     """Verify quant_config and prefix are forwarded to WanTransformer3DModel."""
 
-    def test_quant_config_passed_through(self, monkeypatch):
+    def test_quant_config_passed_through(self, mocker: MockerFixture):
         captured = {}
 
         class FakeTransformer:
             def __init__(self, **kwargs):
                 captured.update(kwargs)
 
-        monkeypatch.setattr(wan22_module, "WanTransformer3DModel", FakeTransformer)
+        mocker.patch.object(wan22_module, "WanTransformer3DModel", FakeTransformer)
 
-        fake_qc = MagicMock()
+        fake_qc = mocker.MagicMock()
         create_transformer_from_config(
             {"patch_size": [1, 2, 2], "num_layers": 2},
             quant_config=fake_qc,
         )
         assert captured.get("quant_config") is fake_qc
 
-    def test_prefix_passed_through(self, monkeypatch):
+    def test_prefix_passed_through(self, mocker: MockerFixture):
         captured = {}
 
         class FakeTransformer:
             def __init__(self, **kwargs):
                 captured.update(kwargs)
 
-        monkeypatch.setattr(wan22_module, "WanTransformer3DModel", FakeTransformer)
+        mocker.patch.object(wan22_module, "WanTransformer3DModel", FakeTransformer)
 
         create_transformer_from_config(
             {"patch_size": [1, 2, 2]},
@@ -67,29 +67,29 @@ class TestCreateTransformerQuant:
         )
         assert captured.get("prefix") == "model.transformer."
 
-    def test_quant_config_none_by_default(self, monkeypatch):
+    def test_quant_config_none_by_default(self, mocker: MockerFixture):
         captured = {}
 
         class FakeTransformer:
             def __init__(self, **kwargs):
                 captured.update(kwargs)
 
-        monkeypatch.setattr(wan22_module, "WanTransformer3DModel", FakeTransformer)
+        mocker.patch.object(wan22_module, "WanTransformer3DModel", FakeTransformer)
 
         create_transformer_from_config({"patch_size": [1, 2, 2]})
         # When quant_config is None and prefix is "", they are not added
         assert "quant_config" not in captured or captured["quant_config"] is None
 
-    def test_quant_config_and_prefix_together(self, monkeypatch):
+    def test_quant_config_and_prefix_together(self, mocker: MockerFixture):
         captured = {}
 
         class FakeTransformer:
             def __init__(self, **kwargs):
                 captured.update(kwargs)
 
-        monkeypatch.setattr(wan22_module, "WanTransformer3DModel", FakeTransformer)
+        mocker.patch.object(wan22_module, "WanTransformer3DModel", FakeTransformer)
 
-        fake_qc = MagicMock()
+        fake_qc = mocker.MagicMock()
         create_transformer_from_config(
             {"patch_size": [1, 2, 2], "num_attention_heads": 4},
             quant_config=fake_qc,
@@ -107,30 +107,30 @@ class TestCreateTransformerQuant:
 class TestCreateVaceTransformerQuant:
     """Verify quant_config and prefix are forwarded to WanVACETransformer3DModel."""
 
-    def test_quant_config_passed_through(self, monkeypatch):
+    def test_quant_config_passed_through(self, mocker: MockerFixture):
         captured = {}
 
         class FakeVACETransformer:
             def __init__(self, **kwargs):
                 captured.update(kwargs)
 
-        monkeypatch.setattr(wan22_vace_module, "WanVACETransformer3DModel", FakeVACETransformer)
+        mocker.patch.object(wan22_vace_module, "WanVACETransformer3DModel", FakeVACETransformer)
 
-        fake_qc = MagicMock()
+        fake_qc = mocker.MagicMock()
         create_vace_transformer_from_config(
             {"patch_size": [1, 2, 2], "num_layers": 2},
             quant_config=fake_qc,
         )
         assert captured.get("quant_config") is fake_qc
 
-    def test_prefix_passed_through(self, monkeypatch):
+    def test_prefix_passed_through(self, mocker: MockerFixture):
         captured = {}
 
         class FakeVACETransformer:
             def __init__(self, **kwargs):
                 captured.update(kwargs)
 
-        monkeypatch.setattr(wan22_vace_module, "WanVACETransformer3DModel", FakeVACETransformer)
+        mocker.patch.object(wan22_vace_module, "WanVACETransformer3DModel", FakeVACETransformer)
 
         create_vace_transformer_from_config(
             {"patch_size": [1, 2, 2]},
@@ -156,9 +156,9 @@ class TestSetTfModelConfig:
         cfg.tf_model_config = None
         return cfg
 
-    def test_propagates_quant_config_when_none(self):
+    def test_propagates_quant_config_when_none(self, mocker: MockerFixture):
         cfg = self._make_od_config()
-        fake_qc = MagicMock()
+        fake_qc = mocker.MagicMock()
         tf_config = SimpleNamespace(quant_config=fake_qc, quant_method="auto-round")
 
         cfg.set_tf_model_config(tf_config)
@@ -166,18 +166,18 @@ class TestSetTfModelConfig:
         assert cfg.tf_model_config is tf_config
         assert cfg.quantization_config is fake_qc
 
-    def test_does_not_overwrite_existing_quantization_config(self):
+    def test_does_not_overwrite_existing_quantization_config(self, mocker: MockerFixture):
         cfg = self._make_od_config()
-        existing_qc = MagicMock()
+        existing_qc = mocker.MagicMock()
         cfg.quantization_config = existing_qc
-        tf_config = SimpleNamespace(quant_config=MagicMock())
+        tf_config = SimpleNamespace(quant_config=mocker.MagicMock())
 
         cfg.set_tf_model_config(tf_config)
 
         assert cfg.tf_model_config is tf_config
         assert cfg.quantization_config is existing_qc  # not overwritten
 
-    def test_no_propagation_when_tf_quant_config_is_none(self):
+    def test_no_propagation_when_tf_quant_config_is_none(self, mocker: MockerFixture):
         cfg = self._make_od_config()
         tf_config = SimpleNamespace(quant_config=None)
 
