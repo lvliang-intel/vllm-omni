@@ -123,7 +123,7 @@ def _build_reverse_alias_map() -> dict[str, str]:
 _CACHED_ALIAS_MAP: dict[str, str] | None = None
 
 
-def normalize_quant_method_alias(method: str | None) -> str | None:
+def _normalize_quant_method_alias(method: str | None) -> str | None:
     """Map a method name (or any of its aliases) to its canonical internal name.
     Returns the input unchanged if it is not a known alias.
     """
@@ -371,7 +371,9 @@ def resolve_quant_config_from_disk(
         )
         return build_quant_config(qc_method, **qc_kwargs)
 
-    if quant_config.get_name() != qc_method:
+    active_method = _normalize_quant_method_alias(quant_config.get_name())
+    disk_method = _normalize_quant_method_alias(qc_method)
+    if active_method != disk_method:
         raise ValueError(
             f"Checkpoint config.json declares quant_method={qc_method!r} but the "
             f"active quantization config is {quant_config.get_name()!r}. "
