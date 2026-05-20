@@ -653,6 +653,7 @@ steps:
         timeout_in_minutes: 60
         commands:
           - pytest -sv tests/e2e/ -k "not test_wan and not test_bagel_expansion and not hunyuan" -m "full_model and diffusion and L4" --run-level "full_model" --ignore=tests/e2e/accuracy
+          - pytest -sv tests/e2e/offline_inference/test_glm_image_autoround_w4a16_expansion.py -m "full_model and diffusion and L4" --run-level "full_model"
         agents:
           queue: "gpu_4_queue" # g6.12xlarge instance on AWS, has 4 L4 GPU
         plugins:

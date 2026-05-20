@@ -6,8 +6,6 @@ These tests verify that the GLM-Image DiT transformer correctly accepts and uses
 quantization configs for W4A16/AutoRound quantization support.
 """
 
-from unittest.mock import MagicMock
-
 import pytest
 import torch
 from pytest_mock import MockerFixture
@@ -136,9 +134,9 @@ class TestValidateGlmImageTpConstraints:
 class TestGlmImageAdaLayerNormZeroQuantization:
     """Test GlmImageAdaLayerNormZero with quantization config."""
 
-    def test_accepts_quant_config_parameter(self):
+    def test_accepts_quant_config_parameter(self, mocker: MockerFixture):
         """Verify the class accepts quant_config parameter."""
-        mock_quant_config = MagicMock()
+        mock_quant_config = mocker.MagicMock()
         layer = GlmImageAdaLayerNormZero(
             embedding_dim=512,
             dim=2560,
@@ -178,9 +176,9 @@ class TestGlmImageAdaLayerNormZeroQuantization:
 class TestGlmImageAdaLayerNormContinuousQuantization:
     """Test GlmImageAdaLayerNormContinuous with quantization config."""
 
-    def test_accepts_quant_config_parameter(self):
+    def test_accepts_quant_config_parameter(self, mocker: MockerFixture):
         """Verify the class accepts quant_config parameter."""
-        mock_quant_config = MagicMock()
+        mock_quant_config = mocker.MagicMock()
         layer = GlmImageAdaLayerNormContinuous(
             embedding_dim=2560,
             conditioning_embedding_dim=512,
@@ -218,9 +216,9 @@ class TestGlmImageAdaLayerNormContinuousQuantization:
 class TestGlmImageAttentionQuantization:
     """Test GlmImageAttention with quantization config."""
 
-    def test_accepts_quant_config_parameter(self):
+    def test_accepts_quant_config_parameter(self, mocker: MockerFixture):
         """Verify GlmImageAttention accepts quant_config parameter."""
-        mock_quant_config = MagicMock()
+        mock_quant_config = mocker.MagicMock()
         attn = GlmImageAttention(
             dim=2560,
             num_heads=64,
@@ -244,9 +242,9 @@ class TestGlmImageAttentionQuantization:
 class TestColumnParallelModulesQuantization:
     """Test ColumnParallelGELU and ColumnParallelSiLU with quantization config."""
 
-    def test_column_parallel_gelu_accepts_quant_config(self):
+    def test_column_parallel_gelu_accepts_quant_config(self, mocker: MockerFixture):
         """Verify ColumnParallelGELU accepts quant_config."""
-        mock_quant_config = MagicMock()
+        mock_quant_config = mocker.MagicMock()
         layer = ColumnParallelGELU(
             dim_in=2560,
             dim_out=10240,
@@ -255,9 +253,9 @@ class TestColumnParallelModulesQuantization:
         )
         assert layer.proj.quant_config is mock_quant_config
 
-    def test_column_parallel_silu_accepts_quant_config(self):
+    def test_column_parallel_silu_accepts_quant_config(self, mocker: MockerFixture):
         """Verify ColumnParallelSiLU accepts quant_config."""
-        mock_quant_config = MagicMock()
+        mock_quant_config = mocker.MagicMock()
         layer = ColumnParallelSiLU(
             dim_in=2560,
             dim_out=10240,
@@ -270,9 +268,9 @@ class TestColumnParallelModulesQuantization:
 class TestGlmImageFeedForwardQuantization:
     """Test GlmImageFeedForward with quantization config."""
 
-    def test_accepts_quant_config_parameter(self):
+    def test_accepts_quant_config_parameter(self, mocker: MockerFixture):
         """Verify GlmImageFeedForward accepts quant_config parameter."""
-        mock_quant_config = MagicMock()
+        mock_quant_config = mocker.MagicMock()
         ff = GlmImageFeedForward(
             dim=2560,
             dim_out=2560,
@@ -316,9 +314,9 @@ class TestGlmImageFeedForwardQuantization:
 class TestGlmImageTransformerBlockQuantization:
     """Test GlmImageTransformerBlock with quantization config."""
 
-    def test_accepts_quant_config_parameter(self):
+    def test_accepts_quant_config_parameter(self, mocker: MockerFixture):
         """Verify GlmImageTransformerBlock accepts quant_config parameter."""
-        mock_quant_config = MagicMock()
+        mock_quant_config = mocker.MagicMock()
         parallel_config = DiffusionParallelConfig(
             tensor_parallel_size=1,
             sequence_parallel_size=1,
@@ -491,18 +489,18 @@ class TestGlmImageRotaryPosEmbed:
 class TestGlmImageTransformer2DModelQuantization:
     """Test GlmImageTransformer2DModel with quantization config."""
 
-    def test_accepts_quant_config_parameter(self):
+    def test_accepts_quant_config_parameter(self, mocker: MockerFixture):
         """Verify the model accepts quant_config parameter."""
         from vllm_omni.diffusion.data import OmniDiffusionConfig
 
-        mock_quant_config = MagicMock()
+        mock_quant_config = mocker.MagicMock()
         parallel_config = DiffusionParallelConfig(
             tensor_parallel_size=1,
             sequence_parallel_size=1,
         )
 
         # Create a minimal mock od_config
-        mock_tf_config = MagicMock()
+        mock_tf_config = mocker.MagicMock()
         mock_tf_config.patch_size = 2
         mock_tf_config.in_channels = 16
         mock_tf_config.out_channels = 16
@@ -514,7 +512,7 @@ class TestGlmImageTransformer2DModelQuantization:
         mock_tf_config.text_embed_dim = 1024
         mock_tf_config.num_layers = 2  # Small number for testing
 
-        mock_od_config = MagicMock(spec=OmniDiffusionConfig)
+        mock_od_config = mocker.MagicMock(spec=OmniDiffusionConfig)
         mock_od_config.tf_model_config = mock_tf_config
         mock_od_config.parallel_config = parallel_config
 
@@ -529,7 +527,7 @@ class TestGlmImageTransformer2DModelQuantization:
             assert block.attn1.to_qkv.quant_config is mock_quant_config
             assert block.ff.net[0].proj.quant_config is mock_quant_config
 
-    def test_accepts_none_quant_config(self):
+    def test_accepts_none_quant_config(self, mocker: MockerFixture):
         """Verify quant_config=None is accepted."""
         from vllm_omni.diffusion.data import OmniDiffusionConfig
 
@@ -538,7 +536,7 @@ class TestGlmImageTransformer2DModelQuantization:
             sequence_parallel_size=1,
         )
 
-        mock_tf_config = MagicMock()
+        mock_tf_config = mocker.MagicMock()
         mock_tf_config.patch_size = 2
         mock_tf_config.in_channels = 16
         mock_tf_config.out_channels = 16
@@ -550,7 +548,7 @@ class TestGlmImageTransformer2DModelQuantization:
         mock_tf_config.text_embed_dim = 1024
         mock_tf_config.num_layers = 2
 
-        mock_od_config = MagicMock(spec=OmniDiffusionConfig)
+        mock_od_config = mocker.MagicMock(spec=OmniDiffusionConfig)
         mock_od_config.tf_model_config = mock_tf_config
         mock_od_config.parallel_config = parallel_config
 
@@ -564,17 +562,17 @@ class TestGlmImageTransformer2DModelQuantization:
             assert block.norm1.linear.quant_config is None
             assert block.attn1.to_qkv.quant_config is None
 
-    def test_norm_out_has_no_quantization(self):
+    def test_norm_out_has_no_quantization(self, mocker: MockerFixture):
         """Verify norm_out (output layer) does NOT use quantization to preserve precision."""
         from vllm_omni.diffusion.data import OmniDiffusionConfig
 
-        mock_quant_config = MagicMock()
+        mock_quant_config = mocker.MagicMock()
         parallel_config = DiffusionParallelConfig(
             tensor_parallel_size=1,
             sequence_parallel_size=1,
         )
 
-        mock_tf_config = MagicMock()
+        mock_tf_config = mocker.MagicMock()
         mock_tf_config.patch_size = 2
         mock_tf_config.in_channels = 16
         mock_tf_config.out_channels = 16
@@ -586,7 +584,7 @@ class TestGlmImageTransformer2DModelQuantization:
         mock_tf_config.text_embed_dim = 1024
         mock_tf_config.num_layers = 2
 
-        mock_od_config = MagicMock(spec=OmniDiffusionConfig)
+        mock_od_config = mocker.MagicMock(spec=OmniDiffusionConfig)
         mock_od_config.tf_model_config = mock_tf_config
         mock_od_config.parallel_config = parallel_config
 
@@ -598,7 +596,7 @@ class TestGlmImageTransformer2DModelQuantization:
         # norm_out.linear should NOT have quant_config to preserve output precision
         assert model.norm_out.linear.quant_config is None
 
-    def test_model_has_sp_plan(self):
+    def test_model_has_sp_plan(self, mocker: MockerFixture):
         """Verify model has _sp_plan defined for sequence parallelism."""
         from vllm_omni.diffusion.data import OmniDiffusionConfig
 
@@ -607,7 +605,7 @@ class TestGlmImageTransformer2DModelQuantization:
             sequence_parallel_size=1,
         )
 
-        mock_tf_config = MagicMock()
+        mock_tf_config = mocker.MagicMock()
         mock_tf_config.patch_size = 2
         mock_tf_config.in_channels = 16
         mock_tf_config.out_channels = 16
@@ -619,7 +617,7 @@ class TestGlmImageTransformer2DModelQuantization:
         mock_tf_config.text_embed_dim = 1024
         mock_tf_config.num_layers = 2
 
-        mock_od_config = MagicMock(spec=OmniDiffusionConfig)
+        mock_od_config = mocker.MagicMock(spec=OmniDiffusionConfig)
         mock_od_config.tf_model_config = mock_tf_config
         mock_od_config.parallel_config = parallel_config
 
@@ -633,7 +631,7 @@ class TestGlmImageTransformer2DModelQuantization:
         assert "prepare" in model._sp_plan
         assert "proj_out" in model._sp_plan
 
-    def test_model_has_hsdp_shard_conditions(self):
+    def test_model_has_hsdp_shard_conditions(self, mocker: MockerFixture):
         """Verify model has _hsdp_shard_conditions for HSDP parallelism."""
         from vllm_omni.diffusion.data import OmniDiffusionConfig
 
@@ -642,7 +640,7 @@ class TestGlmImageTransformer2DModelQuantization:
             sequence_parallel_size=1,
         )
 
-        mock_tf_config = MagicMock()
+        mock_tf_config = mocker.MagicMock()
         mock_tf_config.patch_size = 2
         mock_tf_config.in_channels = 16
         mock_tf_config.out_channels = 16
@@ -654,7 +652,7 @@ class TestGlmImageTransformer2DModelQuantization:
         mock_tf_config.text_embed_dim = 1024
         mock_tf_config.num_layers = 2
 
-        mock_od_config = MagicMock(spec=OmniDiffusionConfig)
+        mock_od_config = mocker.MagicMock(spec=OmniDiffusionConfig)
         mock_od_config.tf_model_config = mock_tf_config
         mock_od_config.parallel_config = parallel_config
 
@@ -666,7 +664,7 @@ class TestGlmImageTransformer2DModelQuantization:
         assert hasattr(model, "_hsdp_shard_conditions")
         assert len(model._hsdp_shard_conditions) > 0
 
-    def test_model_creates_kv_cache(self):
+    def test_model_creates_kv_cache(self, mocker: MockerFixture):
         """Verify model can create KV cache for image editing."""
         from vllm_omni.diffusion.data import OmniDiffusionConfig
 
@@ -675,7 +673,7 @@ class TestGlmImageTransformer2DModelQuantization:
             sequence_parallel_size=1,
         )
 
-        mock_tf_config = MagicMock()
+        mock_tf_config = mocker.MagicMock()
         mock_tf_config.patch_size = 2
         mock_tf_config.in_channels = 16
         mock_tf_config.out_channels = 16
@@ -687,7 +685,7 @@ class TestGlmImageTransformer2DModelQuantization:
         mock_tf_config.text_embed_dim = 1024
         mock_tf_config.num_layers = 2
 
-        mock_od_config = MagicMock(spec=OmniDiffusionConfig)
+        mock_od_config = mocker.MagicMock(spec=OmniDiffusionConfig)
         mock_od_config.tf_model_config = mock_tf_config
         mock_od_config.parallel_config = parallel_config
 

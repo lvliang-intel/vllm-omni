@@ -9,6 +9,8 @@ in all environments.
 
 import pytest
 
+pytestmark = [pytest.mark.core_model, pytest.mark.cpu]
+
 
 class TestLazyImport:
     """Test the __getattr__ lazy import pattern in glm_image __init__.py."""
