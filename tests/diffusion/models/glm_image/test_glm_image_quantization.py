@@ -6,6 +6,8 @@ These tests verify that the GLM-Image DiT transformer correctly accepts and uses
 quantization configs for W4A16/AutoRound quantization support.
 """
 
+import os
+
 import pytest
 import torch
 from pytest_mock import MockerFixture
@@ -29,6 +31,46 @@ from vllm_omni.diffusion.models.glm_image.glm_image_transformer import (
 from vllm_omni.model_executor.models.glm_image.pipeline import GLM_IMAGE_PIPELINE
 
 pytestmark = [pytest.mark.core_model, pytest.mark.cpu]
+
+
+@pytest.fixture(scope="function", autouse=True)
+def _init_distributed():
+    """Initialize the minimal distributed environment required by
+    ReplicatedLinear (tensor-parallel group must exist)."""
+    from vllm.distributed.parallel_state import (
+        cleanup_dist_env_and_memory,
+        init_distributed_environment,
+        initialize_model_parallel,
+    )
+
+    os.environ.setdefault("MASTER_ADDR", "localhost")
+    os.environ.setdefault("MASTER_PORT", "29502")
+    init_distributed_environment(
+        world_size=1,
+        rank=0,
+        local_rank=0,
+        distributed_init_method="env://",
+    )
+    initialize_model_parallel()
+    yield
+    cleanup_dist_env_and_memory()
+
+
+@pytest.fixture(scope="function", autouse=True)
+def _force_default_gemm(monkeypatch):
+    """Force CPU-compatible GEMM dispatch for tests using CPU tensors.
+
+    vLLM's dispatch_unquantized_gemm() selects the backend by platform
+    (e.g. rocm_unquantized_gemm on AMD machines), not by tensor device.
+    CPU test tensors crash with NotImplementedError on ROCm.  Monkeypatch
+    the dispatcher to always return the default (torch.nn.functional.linear)
+    implementation which works on any device."""
+    from vllm.model_executor.layers.utils import default_unquantized_gemm
+
+    monkeypatch.setattr(
+        "vllm.model_executor.layers.linear.dispatch_unquantized_gemm",
+        lambda: default_unquantized_gemm,
+    )
 
 
 @pytest.fixture(scope="function", autouse=True)
